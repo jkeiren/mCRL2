@@ -11,6 +11,12 @@
 #define MCRL2_UTILITIES_DETAIL_HASHTABLE_H
 #pragma once
 
+#ifdef PRINT_LINEAR_PROBING_STEPS
+#include <iomanip>
+#include <boost/multiprecision/cpp_int.hpp>
+#include <boost/multiprecision/cpp_bin_float.hpp>
+#endif
+
 #include "mcrl2/utilities/power_of_two.h" 
 #include "mcrl2/utilities/hashtable.h"    // necessary for header test.
 #include "mcrl2/utilities/indexed_set.h"    // necessary for header test.
@@ -20,9 +26,34 @@ namespace mcrl2
 namespace utilities
 {
 
+#ifdef PRINT_LINEAR_PROBING_STEPS
+template <class Key, typename Hash, typename Equals, typename Allocator>
+inline std::ostream& hashtable<Key, Hash, Equals, Allocator>::print_linear_probing_steps(std::ostream& os)
+{
+  boost::multiprecision::int128_t n_inserts = 0;
+  boost::multiprecision::int128_t sum_steps = 0;
+  for (auto [steps, count]: m_linear_probe_step_count) {
+    os << steps << ":  " << count << std::endl;
+    n_inserts += count;
+    sum_steps += count*steps;
+  }
+  boost::multiprecision::cpp_bin_float_quad avg = boost::multiprecision::cpp_bin_float_quad(sum_steps)/boost::multiprecision::cpp_bin_float_quad(n_inserts);
+  os << "Total number of steps:              " << sum_steps << std::endl;
+  os << "Number of inserts:                  " << n_inserts << std::endl;
+  os << "Average number of steps per insert: " << std::setprecision(2) << avg << std::endl;
+  return os;
+}
+#endif
+
 template <class Key, typename Hash, typename Equals, typename Allocator>
 inline void hashtable<Key, Hash, Equals, Allocator>::rehash(std::size_t size)
 {
+#ifdef PRINT_LINEAR_PROBING_STEPS
+  std::cerr << "Resizing hash table with old size " << size << ". Linear probing statistics for old table: " << std::endl;
+  print_linear_probing_steps(std::cerr);
+  m_linear_probe_step_count.clear();
+#endif //PRINT_LINEAR_PROBING_STEPS
+
   // Copy the old hashtable.
   std::vector<Key> old = std::move(m_hashtable);
 
@@ -31,12 +62,19 @@ inline void hashtable<Key, Hash, Equals, Allocator>::rehash(std::size_t size)
 
   for (const Key& key : old)
   {
+#ifdef PRINT_LINEAR_PROBING_STEPS
+    std::size_t step_count = 0;
+#endif //PRINT_LINEAR_PROBING_STEPS
+
     const std::size_t key_index = get_index(key);
     auto it = begin() + key_index;
     // Find the first empty position.
     while (*it != nullptr)
     {
       ++it;
+#ifdef PRINT_LINEAR_PROBING_STEPS
+      ++step_count;
+#endif //PRINT_LINEAR_PROBING_STEPS
       if (it == end())
       {
         it = begin();
@@ -44,6 +82,15 @@ inline void hashtable<Key, Hash, Equals, Allocator>::rehash(std::size_t size)
 
       assert(it != begin() + key_index);
     }
+
+#ifdef PRINT_LINEAR_PROBING_STEPS
+    auto probe_it = m_linear_probe_step_count.find(step_count);
+    if(probe_it == m_linear_probe_step_count.end())
+    {
+      probe_it = m_linear_probe_step_count.insert({step_count, 0}).first;
+    }
+    ++(probe_it->second);
+#endif //PRINT_LINEAR_PROBING_STEPS
 
     // Found an empty spot, insert a new index belonging to key,
     *it = key;
@@ -96,10 +143,18 @@ inline std::pair<typename hashtable<Key,Hash,Equals,Allocator>::iterator, bool> 
   const std::size_t key_index = get_index(key);
   auto it = begin() + key_index;
 
+#ifdef PRINT_LINEAR_PROBING_STEPS
+  std::size_t step_count = 0;
+#endif //PRINT_LINEAR_PROBING_STEPS
+
   // Find the first empty position.
   while (*it != nullptr)
   {
     ++it;
+#ifdef PRINT_LINEAR_PROBING_STEPS
+    ++step_count;
+#endif //PRINT_LINEAR_PROBING_STEPS
+
     if (it == end())
     {
       it = begin();
@@ -110,6 +165,16 @@ inline std::pair<typename hashtable<Key,Hash,Equals,Allocator>::iterator, bool> 
 
   // Found an empty spot, insert a new index belonging to key,
   *it = key;
+
+#ifdef PRINT_LINEAR_PROBING_STEPS
+  auto probe_it = m_linear_probe_step_count.find(step_count);
+  if(probe_it == m_linear_probe_step_count.end())
+  {
+    probe_it = m_linear_probe_step_count.insert({step_count, 0}).first;
+  }
+  ++(probe_it->second);
+#endif //PRINT_LINEAR_PROBING_STEPS
+
   return std::make_pair(it, true);
 }
 
@@ -145,7 +210,7 @@ inline typename hashtable<Key,Hash,Equals,Allocator>::iterator hashtable<Key,Has
   return it;
 }
 
-
+// TODO: This find is O(n), this should be made more efficient!
 template <class Key, typename Hash, typename Equals, typename Allocator>
 inline typename hashtable<Key,Hash,Equals,Allocator>::iterator hashtable<Key,Hash,Equals,Allocator>::find(const Key& key)
 {

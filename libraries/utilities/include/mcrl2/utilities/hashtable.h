@@ -13,6 +13,9 @@
 
 #include "mcrl2/utilities/unordered_map.h"
 
+// The following define allows printing statistics about the linear probing in the hashtable.
+//#define PRINT_LINEAR_PROBING_STEPS
+
 namespace mcrl2
 {
 namespace utilities
@@ -55,6 +58,14 @@ public:
   hashtable(std::size_t initial_hashtable_size,
     const hasher& hash = hasher(),
     const key_equal& equals = key_equal());
+
+  ~hashtable()
+  {
+#ifdef PRINT_LINEAR_PROBING_STEPS
+    std::cerr << "Destructor of hashtable of size " << size() << ". Linear probing statistic:" << std::endl;
+    print_linear_probing_steps(std::cerr);
+#endif
+  }
 
   /// \brief Forward iterator which runs through the elements from the lowest to the largest number.
   /// \details Complexity is constant per operation.
@@ -162,6 +173,12 @@ private:
 
   /// \brief Always equal to m_hashtable.size() - 1.
   size_type m_buckets_mask;
+
+#ifdef PRINT_LINEAR_PROBING_STEPS
+  std::map<std::size_t, std::size_t> m_linear_probe_step_count; // Maps nr of steps to number of times this nr of steps appeared.
+
+  std::ostream& print_linear_probing_steps(std::ostream& os);
+#endif //PRINT_LINEAR_PROBING_STEPS
 
   /// \brief Resizes the hash table to the given power of two size.
   inline void rehash(std::size_t size);
