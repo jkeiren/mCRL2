@@ -110,7 +110,7 @@ struct printer: public process::add_traverser_sort_expressions<data::detail::pri
 
   void print_if_then_condition(const data::data_expression& condition, const std::string& arrow = "  ->  ")
   {
-    print_expression(condition, false);
+    print_expression(condition, true);
     derived().print(arrow);
   }
 
