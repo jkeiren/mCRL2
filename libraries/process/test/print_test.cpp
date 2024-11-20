@@ -55,6 +55,28 @@ void test_procinst()
   BOOST_CHECK(text == text1);
 }
 
+void test_proc_with_conditions()
+{
+  std::string text =
+      "act  a,b;\n"
+      "\n"
+      "map c1, c2: Bool;\n"
+      ""
+      "\n"
+      "proc P = (c1 && c2) -> a . P + (c2) -> b . P;\n"
+      "\n"
+      "init P;\n"
+      ;
+
+  process_specification p = parse_process_specification(text);
+  std::string text1 = process::pp(p);
+  std::cout << text << std::endl;
+  std::cout << "---" << std::endl;
+  std::cout << text1 << std::endl;
+  std::cout << "---" << std::endl;
+  BOOST_CHECK(text == text1);
+}
+
 void test_action_name_multiset()
 {
   std::vector<core::identifier_string> v;
@@ -97,11 +119,11 @@ void test_process_expressions()
 {
   std::string SPEC = "act c; init true -> c;";
   process_specification procspec = parse_process_specification(SPEC);
-  BOOST_CHECK(process::pp(procspec.init()) == "true -> c");
+  BOOST_CHECK(process::pp(procspec.init()) == "(true) -> c");
 
-  test_process_expression("false -> (true -> tau) <> delta", "false -> (true -> tau) <> delta");
-  test_process_expression("false -> true -> tau <> delta", "false -> true -> tau <> delta");
-  test_process_expression("false -> true -> a <> b <> c", "false -> (true -> a <> b) <> c");
+  test_process_expression("false -> (true -> tau) <> delta", "(false) -> ((true) -> tau) <> delta");
+  test_process_expression("false -> true -> tau <> delta", "(false) -> (true) -> tau <> delta");
+  test_process_expression("false -> true -> a <> b <> c", "(false) -> ((true) -> a <> b) <> c");
 }
 
 BOOST_AUTO_TEST_CASE(test_main)
