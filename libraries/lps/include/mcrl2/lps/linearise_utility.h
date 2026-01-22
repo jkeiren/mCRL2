@@ -16,7 +16,7 @@
 #include "mcrl2/lps/detail/configuration.h"
 #include "mcrl2/process/process_expression.h"
 #include "mcrl2/lps/deadlock_summand.h"
-#include "mcrl2/lps/stochastic_action_summand.h"
+#include "mcrl2/lps/action_summand.h"
 
 #include <optional>
 
@@ -51,8 +51,8 @@ std::string print(const lps_statistics_t& stats, std::size_t indent = 0)
 
 /// Utility function to calculate the number of summands and the sizes of multiactions in those summands for printing
 /// statistics
-inline
-lps_statistics_t get_statistics(const stochastic_action_summand_vector& action_summands)
+template<typename ActionSummandT>
+lps_statistics_t get_statistics(const std::vector<ActionSummandT>& action_summands)
 {
   lps_statistics_t statistics;
   if constexpr (detail::EnableLineariseStatistics)
@@ -69,8 +69,8 @@ lps_statistics_t get_statistics(const stochastic_action_summand_vector& action_s
 }
 
 /// Get statistics for action and deadlock summands
-inline
-lps_statistics_t get_statistics(const stochastic_action_summand_vector& action_summands, const deadlock_summand_vector& deadlock_summands)
+template <typename ActionSummandT>
+lps_statistics_t get_statistics(const std::vector<ActionSummandT>& action_summands, const deadlock_summand_vector& deadlock_summands)
 {
   lps_statistics_t statistics = get_statistics(action_summands);
   statistics.deadlock_summand_count = deadlock_summands.size();
@@ -272,7 +272,7 @@ bool implies_condition(const data::data_expression& c1, const data::data_express
 /// The action summand subsumes the deadlock summand if its condition is implied by that of the deadlock summand,
 /// and either the action summand is not timed, or the timestamp of the deadlock summand and the action summand coincide.
 inline
-bool subsumes(const stochastic_action_summand& as, const deadlock_summand& ds)
+bool subsumes(const action_summand& as, const deadlock_summand& ds)
 {
   return (!as.multi_action().has_time() || ds.deadlock().time() == as.multi_action().time())
       && implies_condition(ds.condition(), as.condition());
@@ -287,9 +287,9 @@ bool subsumes(const deadlock_summand& ds1, const deadlock_summand& ds2)
 }
 
 
-inline
+template <typename ActionSummandT>
 void insert_timed_delta_summand(
-      const stochastic_action_summand_vector& action_summands,
+      const std::vector<ActionSummandT>& action_summands,
       deadlock_summand_vector& deadlock_summands,
       const deadlock_summand& s,
       const bool ignore_time)
@@ -304,7 +304,7 @@ void insert_timed_delta_summand(
 
   // First check whether the delta summand is subsumed by an action summand.
   if (std::any_of(action_summands.begin(), action_summands.end(),
-    [&s](const stochastic_action_summand& as) { return subsumes(as, s); }))
+    [&s](const action_summand& as) { return subsumes(as, s); }))
   {
     return;
   }
