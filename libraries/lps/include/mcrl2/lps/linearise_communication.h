@@ -401,7 +401,8 @@ public:
   }
 
   /// Apply the communication composition to a list of action summands.
-  void apply(stochastic_action_summand_vector& action_summands,
+  template <typename ActionSummandT>
+  void apply(std::vector<ActionSummandT>& action_summands,
       deadlock_summand_vector& deadlock_summands,
       bool nosumelm,
       bool nodeltaelimination,
@@ -448,16 +449,13 @@ public:
       deadlock_summands.emplace_back(data::variable_list(), data::sort_bool::true_(), deadlock());
     }
 
-    stochastic_action_summand_vector resulting_action_summands;
+    std::vector<ActionSummandT> resulting_action_summands;
 
-    for (const stochastic_action_summand& smmnd : action_summands)
+    for (const ActionSummandT& smmnd : action_summands)
     {
-      const data::variable_list& sumvars = smmnd.summation_variables();
-      const process::action_list& multiaction = smmnd.multi_action().actions();
-      const data::data_expression& time = smmnd.multi_action().time();
       const data::data_expression& condition = smmnd.condition();
-      const data::assignment_list& nextstate = smmnd.assignments();
-      const stochastic_distribution& dist = smmnd.distribution();
+      const process::action_list& actions = smmnd.multi_action().actions();
+      const data::data_expression& time = smmnd.multi_action().time();
 
       if (!inline_allow)
       {
@@ -472,6 +470,7 @@ public:
          * summands in the whole system */
 
         // Create new list of summand variables containing only those that occur in the condition or the timestamp.
+        const data::variable_list& sumvars = smmnd.summation_variables();
         data::variable_list newsumvars;
         atermpp::make_term_list(
             newsumvars,
@@ -497,21 +496,22 @@ public:
       // expressions this list in principle contains one summand (unless the condition can be rewritten to false, in
       // which case it is omitted).
 
-      mCRL2log(mcrl2::log::trace) << "Calculating communication on multiaction with " << multiaction.size()
+      mCRL2log(mcrl2::log::trace) << "Calculating communication on multiaction with " << actions.size()
                                   << " actions." << std::endl;
-      mCRL2log(mcrl2::log::trace) << "  Multiaction: " << process::pp(multiaction) << std::endl;
+      mCRL2log(mcrl2::log::trace) << "  Multiaction: " << process::pp(actions) << std::endl;
 
-      const tuple_list multiactionconditionlist = apply(multiaction);
+      const tuple_list multiactionconditionlist = apply(actions);
 
-      mCRL2log(mcrl2::log::trace) << "Calculating communication on multiaction with " << multiaction.size()
-                                  << " actions results in " << multiactionconditionlist.size() << " potential summands"
-                                  << std::endl;
+      mCRL2log(mcrl2::log::trace) << "Calculating communication on multiaction with "
+                                  << actions.size() << " actions results in "
+                                  << multiactionconditionlist.size() << " potential summands" << std::endl;
+
 
       for (std::size_t i = 0; i < multiactionconditionlist.size(); ++i)
       {
-        const process::action_list& multiaction = multiactionconditionlist.actions[i];
+        const process::action_list& new_multiaction = multiactionconditionlist.actions[i];
 
-        if (m_is_allow && !allow_(m_allowlist, multiaction, m_terminationAction))
+        if (m_is_allow && !allow_(m_allowlist, new_multiaction, m_terminationAction))
         {
           if constexpr (EnableLineariseStatistics) {
             ++disallowed_summands;
@@ -519,7 +519,7 @@ public:
 
           continue;
         }
-        if (m_is_block && encap(m_allowlist, multiaction))
+        if (m_is_block && encap(m_allowlist, new_multiaction))
         {
           if constexpr (EnableLineariseStatistics) {
             ++blocked_summands;
@@ -529,13 +529,12 @@ public:
 
         const data::data_expression communicationcondition = m_data_rewriter(multiactionconditionlist.conditions[i]);
 
-        const data::data_expression newcondition = m_data_rewriter(data::lazy::and_(condition, communicationcondition));
-        stochastic_action_summand new_summand(sumvars,
-            newcondition,
-            smmnd.multi_action().has_time() ? multi_action(multiaction, smmnd.multi_action().time())
-                                            : multi_action(multiaction),
-            nextstate,
-            dist);
+        ActionSummandT new_summand(smmnd);
+        new_summand.condition() = m_data_rewriter(data::lazy::and_(condition, communicationcondition));
+        new_summand.multi_action() = smmnd.multi_action().has_time()
+                                            ? multi_action(new_multiaction, time)
+                                            : multi_action(new_multiaction);
+
         if (!nosumelm)
         {
           if (sumelm(new_summand))
@@ -550,7 +549,7 @@ public:
             ++false_condition_summands;
           }
         }
-        
+
         if (new_summand.condition() != data::sort_bool::false_())
         {
           resulting_action_summands.push_back(new_summand);
@@ -900,11 +899,13 @@ protected:
 };
 } // namespace detail
 
-inline void communicationcomposition(const process::communication_expression_list& communications,
+template <typename ActionSummandT>
+inline void communicationcomposition(
+    const process::communication_expression_list& communications,
     const process::action_name_multiset_list& allowlist, // This is a list of list of identifierstring.
     const bool is_allow, // If is_allow or is_block is set, perform inline allow/block filtering.
     const bool is_block,
-    stochastic_action_summand_vector& action_summands,
+    std::vector<ActionSummandT>& action_summands,
     deadlock_summand_vector& deadlock_summands,
     const process::action& terminationAction,
     const bool nosumelm,
