@@ -14,6 +14,7 @@
 
 #include "mcrl2/atermpp/aterm_io_text.h"
 #include "mcrl2/core/identifier_string.h"
+#include "mcrl2/process/action_name_multiset.h"
 
 namespace mcrl2::process
 {
@@ -33,6 +34,19 @@ struct multi_action_name: public std::multiset<core::identifier_string>
 
 /// \brief Represents a set of multi action names
 using multi_action_name_set = std::set<multi_action_name>;
+
+/// \brief Convert the action_name_muliset_list representation used in the process::allow operator to a multi_action_name_set
+inline
+multi_action_name_set to_multi_action_name_set(const action_name_multiset_list& V)
+{
+  multi_action_name_set result;
+  for (const action_name_multiset& s: V)
+  {
+    const core::identifier_string_list& names = s.names();
+    result.emplace(names.begin(), names.end());
+  }
+  return result;
+}
 
 /// \brief Pretty print function for a multi action name
 inline
