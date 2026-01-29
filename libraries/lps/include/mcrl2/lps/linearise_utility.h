@@ -14,6 +14,7 @@
 
 #include "mcrl2/data/data_expression.h"
 #include "mcrl2/lps/detail/configuration.h"
+#include "mcrl2/lps/linear_process.h"
 #include "mcrl2/process/process_expression.h"
 #include "mcrl2/lps/deadlock_summand.h"
 #include "mcrl2/lps/action_summand.h"
@@ -28,6 +29,7 @@ struct lps_statistics_t
 {
   size_t action_summand_count = 0;
   std::optional<size_t> deadlock_summand_count;
+  std::map<std::size_t, std::size_t> action_summand_size_distribution; // key: size of multiaction, value: number of summands with that size
   size_t total_action_count = 0; // The sum of the number of actions in all the multiactions in the action summands.
 };
 
@@ -45,6 +47,13 @@ std::string print(const lps_statistics_t& stats, std::size_t indent = 0)
   {
     ss << indent_str << "average multiaction size (total_action_count / action_summand_count): "
        << static_cast<double>(stats.total_action_count) / static_cast<double>(stats.action_summand_count) << std::endl;
+
+    /// Print distribution of multiaction sizes
+    assert(!stats.action_summand_size_distribution.empty());
+    for (const auto& [size, count] : stats.action_summand_size_distribution)
+    {
+      ss << indent_str << "number of multiactions with " << size << " actions: " << count << std::endl;
+    }
   }
   return ss.str();
 }
@@ -61,6 +70,14 @@ lps_statistics_t get_statistics(const std::vector<ActionSummandT>& action_summan
 
     for (const action_summand& s: action_summands)
     {
+      auto it = statistics.action_summand_size_distribution.find(s.multi_action().actions().size());
+      if (it == statistics.action_summand_size_distribution.end()) {
+        statistics.action_summand_size_distribution[s.multi_action().actions().size()] = 1;
+      }
+      else {
+        ++(it->second);
+      }
+
       statistics.total_action_count += s.multi_action().actions().size();
     }
   }
@@ -76,6 +93,13 @@ lps_statistics_t get_statistics(const std::vector<ActionSummandT>& action_summan
   statistics.deadlock_summand_count = deadlock_summands.size();
 
   return statistics;
+}
+
+/// Get statistics for LPE
+inline
+lps_statistics_t get_statistics(const lps::linear_process& lpe)
+{
+  return get_statistics(lpe.action_summands(), lpe.deadlock_summands());
 }
 
 struct action_name_compare
