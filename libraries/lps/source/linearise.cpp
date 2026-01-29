@@ -25,12 +25,12 @@
    the use of this software.
 */
 
-// The following define allows collecting and printing statistics about the operations performed in the linearizer.
+// We allo collecting and printing statistics about the operations performed
+// in the linearizer using a flag set in configuration.h
 // Currently, we collect and print information about:
 // the operations performed on processes,
 // the number of summands and the total number of actions in the multications in these summands.
 // Note that all logs are written to std::cout, so if this flag is enabled, tool output can not be streamed through std::cout
-//#define MCRL2_LOG_LPS_LINEARISE_STATISTICS 1
 
 //mCRL2 data
 #include <ranges>
@@ -44,6 +44,7 @@
 // linear process libraries.
 #include "mcrl2/lps/constelm.h"
 #include "mcrl2/lps/linearise.h"
+#include "mcrl2/lps/detail/configuration.h"
 #include "mcrl2/lps/linearise_allow_block.h"
 #include "mcrl2/lps/linearise_utility.h"
 #include "mcrl2/lps/linearise_rename.h"
@@ -281,7 +282,7 @@ class specification_basic_type
     {
       if (objectdata.count(o)==0)
       {
-        throw mcrl2::runtime_error("Fail to recognize " + process::pp(o) + 
+        throw mcrl2::runtime_error("Fail to recognize " + process::pp(o) +
                                    ". Most likely due to unguarded recursion in a process equation. ");
       }
     }
@@ -1467,8 +1468,8 @@ class specification_basic_type
     std::set< variable > find_free_variables_process(const process_expression& p)
     {
       std::set<variable> free_variables_in_p_new;
-      free_variables_in_p_new=process::find_free_variables(p); 
-      return free_variables_in_p_new; 
+      free_variables_in_p_new=process::find_free_variables(p);
+      return free_variables_in_p_new;
     }
 
     /* Remove assignments that do not appear in the parameter list. */
@@ -1806,7 +1807,7 @@ class specification_basic_type
       }
 
       throw mcrl2::runtime_error("Internal error: expect a pCRL process (2) " + process::pp(p));
-      return process_expression(); 
+      return process_expression();
     }
 
 
@@ -3989,7 +3990,7 @@ class specification_basic_type
     /**************** Collectparameterlist ******************************/
 
     bool alreadypresent(variable& var,
-                        const variable_list& vl, 
+                        const variable_list& vl,
                         mutable_indexed_substitution<>& parameter_renaming)
     {
       /* Note: variables can be different, although they have the
@@ -4004,9 +4005,9 @@ class specification_basic_type
         {
           if (v.sort()==var.sort())
           {
-            return true; // The variable is present. 
+            return true; // The variable is present.
           }
-          else 
+          else
           {
             if (parameter_renaming(v)==v)
             {
@@ -4017,14 +4018,14 @@ class specification_basic_type
             }
             else
             {
-              // The variable var is renamed, and the renaming was already present. 
-              var=atermpp::down_cast<variable>(parameter_renaming(v)); 
+              // The variable var is renamed, and the renaming was already present.
+              var=atermpp::down_cast<variable>(parameter_renaming(v));
               return true;
             }
           }
         }
       }
-      return false; // The variable var is not present. 
+      return false; // The variable var is not present.
     }
 
     variable_list joinparameters(const variable_list& par1,
@@ -4049,9 +4050,9 @@ class specification_basic_type
       return result;
     }
 
-    // While collecting the parameter list the process parameters that are part of the process identifiers may change. 
-    // This means the list pCRLprocs may change. 
-    variable_list collectparameterlist(std::set<process_identifier>& pCRLprocs) 
+    // While collecting the parameter list the process parameters that are part of the process identifiers may change.
+    // This means the list pCRLprocs may change.
+    variable_list collectparameterlist(std::set<process_identifier>& pCRLprocs)
                                        // mutable_indexed_substitution<>& parameter_renaming)
     {
       mutable_indexed_substitution<> parameter_renaming;  // Used to rename variables with the same name but different sorts.
@@ -4061,7 +4062,7 @@ class specification_basic_type
         const objectdatatype& object=objectIndex(p);
         parameters=joinparameters(parameters,object.parameters, parameter_renaming);
       }
-      // Apply the parameter renaming. 
+      // Apply the parameter renaming.
       std::set<process_identifier> new_pCRLprocs;
       for (const process_identifier& p: pCRLprocs)
       {
@@ -5078,7 +5079,7 @@ class specification_basic_type
       const bool regular,
       const bool singlestate,
       const variable_list& process_parameters)
-      
+
     {
       data_expression atTime;
       action_list multiAction;
@@ -7047,7 +7048,6 @@ class specification_basic_type
 
     /**************** hiding *****************************************/
 
-#ifdef MCRL2_LOG_LPS_LINEARISE_STATISTICS
     static
     std::string log_hide_application(const lps_statistics_t& lps_statistics_before,
                                      const lps_statistics_t& lps_statistics_after,
@@ -7067,7 +7067,6 @@ class specification_basic_type
 
       return os.str();
     }
-#endif // MCRL2_LOG_LPS_LINEARISE_STATISTICS
 
     static
     action_list hide_(const identifier_string_list& hidelist, const action_list& multiaction)
@@ -7090,9 +7089,13 @@ class specification_basic_type
     static
     void hidecomposition(const identifier_string_list& hidelist, stochastic_action_summand_vector& action_summands)
     {
-#ifdef MCRL2_LOG_LPS_LINEARISE_STATISTICS
-      lps_statistics_t lps_statistics_before = get_statistics(action_summands);
-#endif
+      [[maybe_unused]]
+      lps_statistics_t lps_statistics_before;
+      if constexpr (lps::detail::EnableLineariseStatistics)
+      {
+        lps_statistics_before = get_statistics(action_summands);
+      }
+
       for (auto & action_summand : action_summands)
       {
         const action_list acts=hide_(hidelist,action_summand.multi_action().actions());
@@ -7103,10 +7106,10 @@ class specification_basic_type
                           action_summand.distribution());
       }
 
-#ifdef MCRL2_LOG_LPS_LINEARISE_STATISTICS
-      lps_statistics_t lps_statistics_after = get_statistics(action_summands);
-      std::cout << log_hide_application(lps_statistics_before, lps_statistics_after, hidelist.size());
-#endif
+      if constexpr (lps::detail::EnableLineariseStatistics) {
+        lps_statistics_t lps_statistics_after = get_statistics(action_summands);
+        std::cout << log_hide_application(lps_statistics_before, lps_statistics_after, hidelist.size());
+      }
     }
 
     /**************** equalargs ****************************************/
@@ -7722,7 +7725,6 @@ class specification_basic_type
       }
     }
 
-#ifdef MCRL2_LOG_LPS_LINEARISE_STATISTICS
     static std::string log_leftmerge_application(const lps_statistics_t& lps_statistics_before,
         const lps_statistics_t& lps_statistics_result_before,
         const lps_statistics_t& lps_statistics_result_after,
@@ -7758,7 +7760,6 @@ class specification_basic_type
 
       return os.str();
     }
-#endif
 
     void calculate_left_merge(
       const stochastic_action_summand_vector& action_summands1,
@@ -7770,28 +7771,35 @@ class specification_basic_type
       stochastic_action_summand_vector& action_summands,
       deadlock_summand_vector& deadlock_summands)
     {
-#ifdef MCRL2_LOG_LPS_LINEARISE_STATISTICS
-      lps_statistics_t lps_statistics_before = get_statistics(action_summands1, deadlock_summands1);
-      lps_statistics_t lps_statistics_result_before = get_statistics(action_summands, deadlock_summands);
-#endif
+      [[maybe_unused]]
+      lps_statistics_t lps_statistics_before;
+      [[maybe_unused]]
+      lps_statistics_t lps_statistics_result_before;
+
+      if constexpr (lps::detail::EnableLineariseStatistics)
+      {
+        lps_statistics_before = get_statistics(action_summands1, deadlock_summands1);
+        lps_statistics_result_before = get_statistics(action_summands, deadlock_summands);
+      }
 
       calculate_left_merge_deadlock(ultimate_delay_condition2, deadlock_summands1,
                                     is_allow, is_block, action_summands, deadlock_summands);
       calculate_left_merge_action(ultimate_delay_condition2, action_summands1,
                                     allowlist, is_allow, is_block, action_summands);
 
-#ifdef MCRL2_LOG_LPS_LINEARISE_STATISTICS
-      lps_statistics_t lps_statistics_result_after = get_statistics(action_summands, deadlock_summands);
+      if constexpr (lps::detail::EnableLineariseStatistics)
+      {
+        lps_statistics_t lps_statistics_result_after = get_statistics(action_summands, deadlock_summands);
 
-      std::cout << log_leftmerge_application(lps_statistics_before,
-          lps_statistics_result_before,
-          lps_statistics_result_after,
-          is_allow,
-          is_block,
-          (is_block ? allowlist.front().size() : allowlist.size()), 4);
-#endif
+        std::cout << log_leftmerge_application(
+            lps_statistics_before,
+            lps_statistics_result_before,
+            lps_statistics_result_after,
+            is_allow,
+            is_block,
+            (is_block ? allowlist.front().size() : allowlist.size()), 4);
+      }
     }
-
 
     void calculate_communication_merge_action_summands(
           const stochastic_action_summand_vector& action_summands1,
@@ -8009,8 +8017,8 @@ class specification_basic_type
       }
     }
 
-#ifdef MCRL2_LOG_LPS_LINEARISE_STATISTICS
-    static std::string log_communicationmerge_application(const lps_statistics_t& lps1_statistics_before,
+    static
+    std::string log_communicationmerge_application(const lps_statistics_t& lps1_statistics_before,
         const lps_statistics_t& lps2_statistics_before,
         const lps_statistics_t& lps_result_statistics_before,
         const lps_statistics_t& lps_statistics_after,
@@ -8044,7 +8052,6 @@ class specification_basic_type
 
       return os.str();
     }
-#endif
 
     void calculate_communication_merge(
           const stochastic_action_summand_vector& action_summands1,
@@ -8057,23 +8064,33 @@ class specification_basic_type
           stochastic_action_summand_vector& action_summands,
           deadlock_summand_vector& deadlock_summands)
     {
-#ifdef MCRL2_LOG_LPS_LINEARISE_STATISTICS
-      lps_statistics_t lps1_statistics_before = get_statistics(action_summands1, deadlock_summands1);
-      lps_statistics_t lps2_statistics_before = get_statistics(action_summands2, deadlock_summands2);
-      lps_statistics_t lps_result_statistics_before = get_statistics(action_summands, deadlock_summands);
-#endif
+      [[maybe_unused]]
+      lps_statistics_t lps1_statistics_before;
+      [[maybe_unused]]
+      lps_statistics_t lps2_statistics_before;
+      [[maybe_unused]]
+      lps_statistics_t lps_result_statistics_before;
+
+      if constexpr (lps::detail::EnableLineariseStatistics)
+      {
+        lps1_statistics_before = get_statistics(action_summands1, deadlock_summands1);
+        lps2_statistics_before = get_statistics(action_summands2, deadlock_summands2);
+        lps_result_statistics_before = get_statistics(action_summands, deadlock_summands);
+      }
+
 
       calculate_communication_merge_action_summands(action_summands1, action_summands2, allowlist, is_allow, is_block, action_summands);
       calculate_communication_merge_action_deadlock_summands(action_summands1, deadlock_summands2, action_summands, deadlock_summands);
       calculate_communication_merge_action_deadlock_summands(action_summands2, deadlock_summands1, action_summands, deadlock_summands);
       calculate_communication_merge_deadlock_summands(deadlock_summands1, deadlock_summands2, action_summands, deadlock_summands);
 
-#ifdef MCRL2_LOG_LPS_LINEARISE_STATISTICS
-      lps_statistics_t lps_statistics_after = get_statistics(action_summands, deadlock_summands);
+      if constexpr (lps::detail::EnableLineariseStatistics)
+      {
+        lps_statistics_t lps_statistics_after = get_statistics(action_summands, deadlock_summands);
 
-      std::cout << log_communicationmerge_application(lps1_statistics_before, lps2_statistics_before, lps_result_statistics_before,
-          lps_statistics_after, is_allow, is_block, (is_block ? allowlist.front().size() : allowlist.size()), 4);
-#endif
+        std::cout << log_communicationmerge_application(lps1_statistics_before, lps2_statistics_before, lps_result_statistics_before,
+            lps_statistics_after, is_allow, is_block, (is_block ? allowlist.front().size() : allowlist.size()), 4);
+      }
     }
 
 
@@ -8124,7 +8141,6 @@ class specification_basic_type
     }
 
 
-#ifdef MCRL2_LOG_LPS_LINEARISE_STATISTICS
     static
     std::string log_parallelcomposition_application_start(
                                     const lps_statistics_t& lps1_statistics_before,
@@ -8173,7 +8189,6 @@ class specification_basic_type
 
       return os.str();
     }
-#endif
 
     void parallelcomposition(
       const stochastic_action_summand_vector& action_summands1,
@@ -8210,12 +8225,18 @@ class specification_basic_type
       // At this point the parameters of pars1 and pars2 are unique, except for
       // those that are constant in both processes.
 
-#ifdef MCRL2_LOG_LPS_LINEARISE_STATISTICS
-      lps_statistics_t lps1_statistics_before = get_statistics(action_summands1, deadlock_summands1);
-      lps_statistics_t lps2_statistics_before = get_statistics(action_summands2, deadlock_summands2);
+      if constexpr (lps::detail::EnableLineariseStatistics)
+      {
+        lps_statistics_t lps1_statistics_before = get_statistics(action_summands1, deadlock_summands1);
+        lps_statistics_t lps2_statistics_before = get_statistics(action_summands2, deadlock_summands2);
 
-      std::cout << log_parallelcomposition_application_start(lps1_statistics_before, lps2_statistics_before, is_allow, is_block, (is_block?allowlist1.front().size():allowlist1.size()));
-#endif
+        std::cout << log_parallelcomposition_application_start(
+          lps1_statistics_before,
+          lps2_statistics_before,
+          is_allow,
+          is_block,
+          (is_block ? allowlist1.front().size() : allowlist1.size()));
+      }
 
       variable_list pars3;
       for (const variable& v: pars2)
@@ -8246,11 +8267,11 @@ class specification_basic_type
         ultimate_delay_condition=combine_ultimate_delays(ultimate_delay_condition1, ultimate_delay_condition2);
       }
 
-#ifdef MCRL2_LOG_LPS_LINEARISE_STATISTICS
-      lps_statistics_t lps_statistics_after = get_statistics(action_summands, deadlock_summands);
-
-      std::cout << log_parallelcomposition_application_end(lps_statistics_after);
-#endif
+      if constexpr (lps::detail::EnableLineariseStatistics)
+      {
+        lps_statistics_t lps_statistics_after = get_statistics(action_summands, deadlock_summands);
+        std::cout << log_parallelcomposition_application_end(lps_statistics_after);
+      }
     }
 
     /**************** GENERaTE LPEmCRL **********************************/
