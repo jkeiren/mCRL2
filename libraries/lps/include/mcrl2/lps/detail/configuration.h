@@ -16,7 +16,7 @@ namespace mcrl2::lps::detail
 {
 
 /// \brief If true, statistics are logged for the linearisation of allow and block operators.
-constexpr bool EnableLineariseStatistics = false;
+constexpr bool EnableLineariseStatistics = true;
 
 } // namespace mcrl2::lps::detail
 
