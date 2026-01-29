@@ -290,20 +290,23 @@ inline void allowblockcomposition(
                                   << deadlock_summands.size() << " delta summands\n";
   }
 
-  if constexpr (detail::EnableLineariseStatistics && (sourcesumlist_length > 2 || is_allow))
+  if constexpr (detail::EnableLineariseStatistics)
   {
-    // This function is also called when performing data elimination.
-    // In that case, there is a block operation that linearizes the term delta.
-    // It cannot be correlated to the input process, and the data is confusion.
-    lps_statistics_t lps_statistics_after = get_statistics(action_summands, deadlock_summands);
+    if (sourcesumlist_length > 2 || is_allow)
+    {
+      // This function is also called when performing data elimination.
+      // In that case, there is a block operation that linearizes the term delta.
+      // It cannot be correlated to the input process, and the data is confusion.
+      lps_statistics_t lps_statistics_after = get_statistics(action_summands, deadlock_summands);
 
-    std::cout << log_allow_block_application(lps_statistics_before,
+      std::cout << log_allow_block_application(lps_statistics_before,
         lps_statistics_after,
         is_allow,
         (is_allow ? allowlist.size() : 0),
         (is_allow ? 0 : allowlist.front().size()),
         !nodeltaelimination,
         ignore_time);
+    }
   }
 }
 
