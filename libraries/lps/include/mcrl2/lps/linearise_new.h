@@ -175,8 +175,9 @@ void communication_merge(InsertIter it,
 {
   const auto summand_combinations
     = utilities::cartesian_product(summands1, summands2);
+  std::size_t filtered_summands = 0;
 
-  std::for_each(summand_combinations.begin(), summand_combinations.end(), [&it, &filter](const auto& summand_pair)
+  std::for_each(summand_combinations.begin(), summand_combinations.end(), [&it, &filter, &filtered_summands](const auto& summand_pair)
   {
     const action_summand merged_summand = communication_merge(summand_pair.first, summand_pair.second);
     // We should have ensured that all multiactions are sorted.
@@ -188,7 +189,16 @@ void communication_merge(InsertIter it,
     {
       *it++ = merged_summand;
     }
+    else
+    {
+      ++filtered_summands;
+    }
   });
+
+  if constexpr (detail::EnableLineariseStatistics)
+  {
+    std::cout << "communication_merge: filtered out " << filtered_summands << " summands\n";
+  }
 }
 
 /// \brief Linearise parallel composition of two linear processes
@@ -207,6 +217,11 @@ linearise_lpe linearise_parallel(
     detail::variable_names(lpe1.lpe.process_parameters()),
     detail::variable_names(lpe2.lpe.process_parameters())));
 
+  [[maybe_unused]]
+  lps_statistics_t lpe1_statistics_before = get_statistics(lpe1.lpe);
+  [[maybe_unused]]
+  lps_statistics_t lpe2_statistics_before = get_statistics(lpe2.lpe);
+
   linearise_lpe result;
 
   result.lpe.process_parameters()
@@ -221,27 +236,11 @@ linearise_lpe linearise_parallel(
     insert_it,
     filter);
 
-  // We should have ensured that all multiactions are sorted.
-  std::for_each(result.lpe.action_summands().begin(),
-    result.lpe.action_summands().end(),
-    [](const action_summand& as)
-    {
-      assert(std::is_sorted(as.multi_action().actions().begin(), as.multi_action().actions().end(), action_compare()));
-    });
-
   std::copy_if(
     lpe2.lpe.action_summands().begin(),
     lpe2.lpe.action_summands().end(),
     insert_it,
     filter);
-
-  // We should have ensured that all multiactions are sorted.
-  std::for_each(result.lpe.action_summands().begin(),
-    result.lpe.action_summands().end(),
-    [](const action_summand& as)
-    {
-      assert(std::is_sorted(as.multi_action().actions().begin(), as.multi_action().actions().end(), action_compare()));
-    });
 
   communication_merge(
     insert_it,
@@ -258,6 +257,21 @@ linearise_lpe linearise_parallel(
     {
       assert(std::is_sorted(as.multi_action().actions().begin(), as.multi_action().actions().end(), action_compare()));
     });
+
+  [[maybe_unused]]
+  lps_statistics_t lpe_statistics_after = get_statistics(result.lpe);
+
+  if constexpr (detail::EnableLineariseStatistics)
+  {
+    lps_statistics_t lps_statistics_after = get_statistics(result.lpe);
+    std::cout << "Parallel composition of two LPEs:\n";
+    std::cout << "  First LPE before:\n"
+      << print(lpe1_statistics_before, 4)
+      << "  Second LPE before:\n"
+      << print(lpe2_statistics_before, 4)
+      << "  Resulting LPE after:\n"
+      << print(lpe_statistics_after, 4);
+  }
 
   return result;
 }
