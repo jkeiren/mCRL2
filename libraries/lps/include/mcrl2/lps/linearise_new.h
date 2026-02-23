@@ -59,6 +59,7 @@ namespace detail
     return true;
   }
 
+  /// \brief Check whether two sets are disjoint
   template<typename T>
   bool is_disjoint(const std::set<T>& xs, const std::set<T>& ys)
   {
@@ -79,6 +80,7 @@ namespace detail
     return result;
   }
 
+  /// \brief Extract the names of all the variables in vars.
   inline
   std::set<core::identifier_string> variable_names(const data::variable_list& vars)
   {
@@ -90,11 +92,29 @@ namespace detail
     return result;
   }
 
+  /// \brief Extract the multiaction name from a multiaction.
   inline
   process::multi_action_name multi_action_name(const multi_action& ma)
   {
     std::ranges::transform_view names(ma.actions(), [](const process::action& a) { return a.label().name(); });
     return process::multi_action_name(names.begin(), names.end());
+  }
+
+  /// \brief Predicate to check if all multiactions in the summand are sorted.
+  inline
+  bool multi_actions_are_sorted(const lps::action_summand& as)
+  {
+    return std::is_sorted(as.multi_action().actions().begin(), as.multi_action().actions().end(), action_compare());
+  }
+
+  /// \brief Predicate to check if all multiactions in the lpe are sorted.
+  inline
+  bool multi_actions_are_sorted(const lps::linear_process& lpe)
+  {
+    return std::all_of(
+      lpe.action_summands().begin(),
+      lpe.action_summands().end(),
+      [](const lps::action_summand& as){ return detail::multi_actions_are_sorted(as); });
   }
 }
 
@@ -102,10 +122,10 @@ namespace detail
 /// during linearisation.
 struct linearise_lpe
 {
-	/// LPE
-	linear_process lpe;
-	/// Initialization of the LPE.
-	process_initializer initial_process;
+  /// LPE
+  linear_process lpe;
+  /// Initialization of the LPE.
+  process_initializer initial_process;
 
   linearise_lpe() = default;
   linearise_lpe(const linear_process& lpe, const process_initializer& initial_process)
@@ -132,6 +152,7 @@ void apply_communication(const process::communication_expression_list& C, linear
       lpe.lpe.deadlock_summands(), termination_action, nosumelm, nodeltaelimination, ignore_time, rewr);
 }
 
+/// \brief Apply a set of allowed multiactions to the lpe.
 inline
 void apply_allow(const process::action_name_multiset_list& allowlist, linearise_lpe& lpe)
 {
@@ -180,10 +201,7 @@ void communication_merge(InsertIter it,
   std::for_each(summand_combinations.begin(), summand_combinations.end(), [&it, &filter, &filtered_summands](const auto& summand_pair)
   {
     const action_summand merged_summand = communication_merge(summand_pair.first, summand_pair.second);
-    // We should have ensured that all multiactions are sorted.
-    assert(std::is_sorted(merged_summand.multi_action().actions().begin(),
-      merged_summand.multi_action().actions().end(),
-      action_compare()));
+    assert(detail::multi_actions_are_sorted(merged_summand));
 
     if (filter(merged_summand))
     {
@@ -250,13 +268,7 @@ linearise_lpe linearise_parallel(
 
   make_process_initializer(result.initial_process, lpe1.initial_process.expressions() + lpe2.initial_process.expressions());
 
-  // We should have ensured that all multiactions are sorted.
-  std::for_each(result.lpe.action_summands().begin(),
-    result.lpe.action_summands().end(),
-    [](const action_summand& as)
-    {
-      assert(std::is_sorted(as.multi_action().actions().begin(), as.multi_action().actions().end(), action_compare()));
-    });
+  assert(detail::multi_actions_are_sorted(result.lpe));
 
   [[maybe_unused]]
   lps_statistics_t lpe_statistics_after = get_statistics(result.lpe);
@@ -276,6 +288,7 @@ linearise_lpe linearise_parallel(
   return result;
 }
 
+/// \brief Linearise the parallel composition of the LPEs in [first, last)
 template<typename Iter, class ActionSummandFilter>
 linearise_lpe
 linearise_parallel(Iter first, Iter last, ActionSummandFilter filter = [](const action_summand&) { return true; })
@@ -319,11 +332,7 @@ inline linearise_lpe linearise_new(
     [&inner_allow_actions](const action_summand& as)
     { return inner_allow_actions.contains(detail::multi_action_name(as.multi_action())); });
 
-  // We should have ensured that all multiactions are sorted.
-  std::for_each(result.lpe.action_summands().begin(), result.lpe.action_summands().end(), [](const action_summand& as)
-  {
-    assert(std::is_sorted(as.multi_action().actions().begin(), as.multi_action().actions().end(), action_compare()));
-  });
+  assert(detail::multi_actions_are_sorted(result.lpe));
 
   // Apply communication and allow operators.
   apply_communication(comm_expressions, result);
