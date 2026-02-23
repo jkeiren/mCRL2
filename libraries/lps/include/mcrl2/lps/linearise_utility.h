@@ -211,7 +211,7 @@ process::action_list sort_actions(const process::action_list& actions,
   const std::function<bool(const process::action&, const process::action&)>& cmp
                                     = [](const process::action& t1, const process::action& t2){ return action_compare()(t1, t2);})
 {
-  return process::action_list(atermpp::sort_list(actions, cmp));
+  return atermpp::sort_list(actions, cmp);
 }
 
 
@@ -221,14 +221,12 @@ process::action_list sort_actions(const process::action_list& actions,
 inline
 process::communication_expression_list sort_communications(const process::communication_expression_list& communications)
 {
-  process::communication_expression_list result;
-
-  for (const process::communication_expression& comm: communications)
-  {
-    result.push_front(process::communication_expression(sort_action_names(comm.action_name()),comm.name()));
-  }
-
-  return result;
+  return process::communication_expression_list(
+    communications.begin(),
+    communications.end(),
+    [](const process::communication_expression& comm) {
+      return process::communication_expression(sort_action_names(comm.action_name()), comm.name());
+    });
 }
 
 inline
