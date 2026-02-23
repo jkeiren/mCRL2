@@ -230,7 +230,7 @@ inline void allowblockcomposition(
    each delta summand it is determined whether it ought
    to be added, or is superseded by an action or another
    delta summand */
-  for (const action_summand& smmnd : sourcesumlist)
+  for (const ActionSummandT& smmnd : sourcesumlist)
   {
     const data::variable_list& sumvars = smmnd.summation_variables();
     const process::action_list& multiaction = smmnd.multi_action().actions();
