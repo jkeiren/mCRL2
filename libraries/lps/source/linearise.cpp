@@ -36,6 +36,7 @@
 #include <ranges>
 
 #include "mcrl2/atermpp/aterm.h"
+#include "mcrl2/data/assignment.h"
 #include "mcrl2/data/substitutions/maintain_variables_in_rhs.h"
 #include "mcrl2/data/fourier_motzkin.h"
 #include "mcrl2/data/enumerator.h"
@@ -546,22 +547,18 @@ class specification_basic_type
 
     data_expression_list RewriteTermList(const data_expression_list& t)
     {
-      data_expression_vector v;
-      for(const data_expression& d: t)
-      {
-        v.push_back(RewriteTerm(d));
-      }
-      return data_expression_list(v.begin(),v.end());
+      return data_expression_list(
+        t.begin(),
+        t.end(),
+        [this](const data_expression& d) { return RewriteTerm(d); });
     }
 
     assignment_list rewrite_assignments(const assignment_list& t)
     {
-      assignment_vector v;
-      for(const assignment& a: t)
-      {
-        v.emplace_back(a.lhs(), RewriteTerm(a.rhs()));
-      }
-      return assignment_list(v.begin(),v.end());
+      return assignment_list(
+        t.begin(),
+        t.end(),
+        [this](const assignment& a) { return assignment(a.lhs(), RewriteTerm(a.rhs())); });
     }
 
     action RewriteAction(const action& t)
