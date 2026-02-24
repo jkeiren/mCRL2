@@ -336,6 +336,7 @@ class specification_basic_type
     static
     action_list to_action_list(const process_expression& p)
     {
+      assert(is_tau(p) || is_action(p) || is_sync(p));
       if (is_tau(p))
       {
         return action_list();
@@ -358,6 +359,7 @@ class specification_basic_type
     static
     action_list to_sorted_action_list(const process_expression& p)
     {
+      assert(is_tau(p) || is_action(p) || is_sync(p));
       return sort_actions(to_action_list(p));
     }
 
@@ -8235,17 +8237,16 @@ class specification_basic_type
           (is_block ? allowlist1.front().size() : allowlist1.size()));
       }
 
-      variable_list pars3;
-      for (const variable& v: pars2)
-      {
-        if (std::find(pars1.begin(),pars1.end(),v)==pars1.end())
-        {
-          // *i does not occur in pars1.
-          pars3.push_front(v);
-        }
-      }
+      // pars3 contains the parameters that are unique in the second process;
+      // all other parameters in pars2 are constant
+      variable_list pars3(
+        pars2.begin(),
+        pars2.end(),
+        [](const variable& v) { return v; },
+        [&pars1](const variable& v) {
+          return std::find(pars1.begin(), pars1.end(), v) == pars1.end();
+        } );
 
-      pars3=reverse(pars3);
       assert(action_summands.size()==0);
       assert(deadlock_summands.size()==0);
       combine_summand_lists(action_summands1,deadlock_summands1,ultimate_delay_condition1,
