@@ -35,37 +35,6 @@ namespace mcrl2::lps
 
 namespace detail
 {
-  /// \brief Check whether two sorted ranges are disjoint
-  /// \pre [first1, last1) and [first2, last2) are sorted ranges
-  template<class InputIt1, class InputIt2>
-  bool is_disjoint(InputIt1 first1, InputIt1 last1, InputIt2 first2, InputIt2 last2)
-  {
-    while (first1 != last1 && first2 != last2)
-    {
-      if (*first1 < *first2)
-      {
-        ++first1;
-      }
-      else if (*first1 == *first2)
-      {
-        return false;
-      }
-      else //*first1 > *first2
-      {
-        ++first2;
-      }
-    }
-
-    return true;
-  }
-
-  /// \brief Check whether two sets are disjoint
-  template<typename T>
-  bool is_disjoint(const std::set<T>& xs, const std::set<T>& ys)
-  {
-	  return is_disjoint(xs.begin(), xs.end(), ys.begin(), ys.end());
-  }
-
   /// \brief Merges two multi-actions by concatenation and sorting the resulting actions.
   /// \param a1 A multi-action
   /// \param a2 A multi-action
@@ -231,7 +200,7 @@ linearise_lpe linearise_parallel(
   const linearise_lpe& lpe2,
   ActionSummandFilter filter = [](const action_summand&) { return true; })
 {
-  assert(detail::is_disjoint(
+  assert(utilities::detail::has_empty_intersection(
     detail::variable_names(lpe1.lpe.process_parameters()),
     detail::variable_names(lpe2.lpe.process_parameters())));
 
