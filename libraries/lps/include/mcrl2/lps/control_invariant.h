@@ -18,15 +18,14 @@
 /// remove summands that are never enabled in a reachable state. The result is strongly bisimilar to
 /// the input (strengthening with an inductive invariant that holds initially).
 ///
-/// Summands whose condition bounds a numeric parameter to a small range, and whose update of that
-/// parameter is constant for every value in the range, are split into one summand per value first.
+/// Counters that are updated under a range condition (`0 < a && a < 3 -> a := a + 1`) are only
+/// trackable after splitting such summands with split_ranges (mcrl2/lps/split_ranges.h).
 
 #ifndef MCRL2_LPS_CONTROL_INVARIANT_H
 #define MCRL2_LPS_CONTROL_INVARIANT_H
 
 #include "mcrl2/data/join.h"
 #include "mcrl2/data/rewriter.h"
-#include "mcrl2/data/standard_numbers_utility.h"
 #include "mcrl2/data/substitutions/mutable_map_substitution.h"
 #include "mcrl2/lps/detail/instantiate_global_variables.h"
 #include "mcrl2/lps/specification.h"
@@ -41,12 +40,6 @@
 namespace mcrl2::lps
 {
 
-struct control_invariant_options
-{
-  /// \brief The maximal number of values in a range that is split into separate summands.
-  std::size_t max_range = 16;
-};
-
 namespace detail
 {
 
@@ -59,7 +52,6 @@ protected:
 
   specification& m_spec;
   data::rewriter m_rewr;
-  control_invariant_options m_options;
   std::vector<data::variable> m_parameters;
 
   // Per summand (action summands first, then deadlock summands).
@@ -105,165 +97,6 @@ protected:
       return std::nullopt;
     }
     return static_cast<std::size_t>(i - m_parameters.begin());
-  }
-
-  // Returns the value of a numeral, if x is one.
-  static std::optional<long long> numeral_value(const data::data_expression& x)
-  {
-    if (data::sort_pos::is_positive_constant(x))
-    {
-      return std::stoll(data::sort_pos::positive_constant_as_string(x));
-    }
-    if (data::sort_nat::is_natural_constant(x))
-    {
-      return std::stoll(data::sort_nat::natural_constant_as_string(x));
-    }
-    if (data::sort_int::is_integer_constant(x))
-    {
-      return std::stoll(data::sort_int::integer_constant_as_string(x));
-    }
-    return std::nullopt;
-  }
-
-  static std::optional<data::data_expression> numeral(const data::sort_expression& s, long long value)
-  {
-    if (data::sort_pos::is_pos(s) && value > 0)
-    {
-      return data::sort_pos::pos(std::to_string(value));
-    }
-    if (data::sort_nat::is_nat(s) && value >= 0)
-    {
-      return data::sort_nat::nat(std::to_string(value));
-    }
-    if (data::sort_int::is_int(s))
-    {
-      return data::sort_int::int_(std::to_string(value));
-    }
-    return std::nullopt;
-  }
-
-  // Computes the bounds [lo, hi] of the numeric parameters constrained by the conjuncts of a condition.
-  std::map<std::size_t, std::pair<long long, long long>> range_bounds(const data::data_expression& cond)
-  {
-    std::map<std::size_t, long long> lower;
-    std::map<std::size_t, long long> upper;
-    auto add = [&](std::map<std::size_t, long long>& m, std::size_t i, long long v, bool is_lower)
-    {
-      auto j = m.find(i);
-      if (j == m.end())
-      {
-        m[i] = v;
-      }
-      else
-      {
-        j->second = is_lower ? std::max(j->second, v) : std::min(j->second, v);
-      }
-    };
-    for (const data::data_expression& c: data::split_and(cond))
-    {
-      const bool strict = data::is_less_application(c) || data::is_greater_application(c);
-      const bool non_strict = data::is_less_equal_application(c) || data::is_greater_equal_application(c);
-      if (!strict && !non_strict)
-      {
-        continue;
-      }
-      // Normalise to left < right or left <= right.
-      const bool greater = data::is_greater_application(c) || data::is_greater_equal_application(c);
-      const data::data_expression left = greater ? data::binary_right1(c) : data::binary_left1(c);
-      const data::data_expression right = greater ? data::binary_left1(c) : data::binary_right1(c);
-      const long long offset = strict ? 1 : 0;
-      std::optional<std::size_t> p = parameter_index(right);
-      std::optional<long long> v = numeral_value(m_rewr(left));
-      if (p && v) // v < p, v <= p
-      {
-        add(lower, *p, *v + offset, true);
-        continue;
-      }
-      p = parameter_index(left);
-      v = numeral_value(m_rewr(right));
-      if (p && v) // p < v, p <= v
-      {
-        add(upper, *p, *v - offset, false);
-      }
-    }
-    std::map<std::size_t, std::pair<long long, long long>> result;
-    for (const auto& [i, lo]: lower)
-    {
-      auto j = upper.find(i);
-      if (j != upper.end() && lo <= j->second && static_cast<std::size_t>(j->second - lo) < m_options.max_range)
-      {
-        result[i] = {lo, j->second};
-      }
-    }
-    return result;
-  }
-
-  // Splits summands whose condition bounds a parameter to a small range, provided that the update
-  // of that parameter is not constant, but becomes constant for every value in the range.
-  std::size_t split_ranges()
-  {
-    std::size_t splits = 0;
-    action_summand_vector result;
-    for (const action_summand& summand: m_spec.process().action_summands())
-    {
-      std::vector<action_summand> todo = {summand};
-      for (const auto& [i, bounds]: range_bounds(summand.condition()))
-      {
-        const data::variable& p = m_parameters[i];
-        std::vector<action_summand> next;
-        for (const action_summand& s: todo)
-        {
-          const data::data_expression update = next_state_value(s, i);
-          if (update == p || data::is_constant(m_rewr(update)))
-          {
-            next.push_back(s);
-            continue;
-          }
-          std::vector<action_summand> parts;
-          bool constant_targets = true;
-          for (long long k = bounds.first; k <= bounds.second && constant_targets; ++k)
-          {
-            std::optional<data::data_expression> value = numeral(p.sort(), k);
-            if (!value)
-            {
-              constant_targets = false;
-              break;
-            }
-            data::mutable_map_substitution<> sigma;
-            sigma[p] = *value;
-            constant_targets = data::is_constant(m_rewr(update, sigma));
-            action_summand part = s;
-            part.condition() = data::sort_bool::and_(data::equal_to(p, *value), s.condition());
-            parts.push_back(part);
-          }
-          if (constant_targets)
-          {
-            next.insert(next.end(), parts.begin(), parts.end());
-            ++splits;
-          }
-          else
-          {
-            next.push_back(s);
-          }
-        }
-        todo = next;
-      }
-      result.insert(result.end(), todo.begin(), todo.end());
-    }
-    m_spec.process().action_summands() = result;
-    return splits;
-  }
-
-  data::data_expression next_state_value(const action_summand& s, std::size_t i) const
-  {
-    for (const data::assignment& a: s.assignments())
-    {
-      if (a.lhs() == m_parameters[i])
-      {
-        return a.rhs();
-      }
-    }
-    return m_parameters[i];
   }
 
   // Sources from conjuncts p == c, c == p, b and !b, with c a closed term.
@@ -603,10 +436,9 @@ protected:
   }
 
 public:
-  control_invariant_algorithm(specification& spec, const data::rewriter& rewr, const control_invariant_options& options)
+  control_invariant_algorithm(specification& spec, const data::rewriter& rewr)
     : m_spec(spec),
-      m_rewr(rewr),
-      m_options(options)
+      m_rewr(rewr)
   {}
 
   void run()
@@ -615,7 +447,6 @@ public:
     const data::variable_list& parameters = m_spec.process().process_parameters();
     m_parameters.assign(parameters.begin(), parameters.end());
 
-    const std::size_t splits = split_ranges();
     compute_sources_and_targets();
     compute_trackable_parameters();
     compute_scopes();
@@ -637,10 +468,10 @@ public:
         derived += m_derived[j].size();
       }
     }
-    mCRL2log(log::log_level_t::verbose) << "control invariant: " << splits << " summands split, " << summand_count()
-                                        << " summands, " << trackable << " trackable parameters, " << m_scopes.size()
-                                        << " pair scopes with " << reachable_pairs << " reachable pairs, " << derived
-                                        << " derived sources, " << dead << " summands removed" << std::endl;
+    mCRL2log(log::log_level_t::verbose) << "control invariant: " << summand_count() << " summands, " << trackable
+                                        << " trackable parameters, " << m_scopes.size() << " pair scopes with "
+                                        << reachable_pairs << " reachable pairs, " << derived << " derived sources, "
+                                        << dead << " summands removed" << std::endl;
     write_result();
   }
 };
@@ -650,11 +481,9 @@ public:
 /// \brief Strengthens the conditions of an LPS with a pairwise invariant over its trackable parameters,
 /// and removes summands that are never enabled in a reachable state. Global variables are instantiated.
 /// The result is strongly bisimilar to the input.
-inline void control_invariant(specification& spec,
-  const data::rewriter& rewr,
-  const control_invariant_options& options = control_invariant_options())
+inline void control_invariant(specification& spec, const data::rewriter& rewr)
 {
-  detail::control_invariant_algorithm(spec, rewr, options).run();
+  detail::control_invariant_algorithm(spec, rewr).run();
 }
 
 } // namespace mcrl2::lps
