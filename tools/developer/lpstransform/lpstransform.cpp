@@ -15,6 +15,7 @@
 #include "mcrl2/lps/is_well_typed.h"
 #include "mcrl2/lps/one_point_rule_rewrite.h"
 #include "mcrl2/lps/rewrite.h"
+#include "mcrl2/lps/split_ranges.h"
 #include "mcrl2/utilities/detail/io.h"
 #include "mcrl2/utilities/detail/transform_tool.h"
 #include "mcrl2/utilities/input_output_tool.h"
@@ -96,6 +97,24 @@ struct control_invariant_command : public lps::detail::lps_rewriter_command
   }
 };
 
+struct split_ranges_command : public lps::detail::lps_rewriter_command
+{
+  split_ranges_command(const std::string& input_filename,
+    const std::string& output_filename,
+    const std::vector<std::string>& options,
+    data::rewrite_strategy strategy)
+    : lps::detail::lps_rewriter_command("split-ranges", input_filename, output_filename, options, strategy)
+  {}
+
+  void execute() override
+  {
+    lps::detail::lps_command::execute();
+    data::rewriter rewr(lpsspec.data(), strategy);
+    lps::split_ranges(lpsspec, rewr);
+    lps::save_lps(lpsspec, output_filename);
+  }
+};
+
 struct is_well_typed_command: public lps::detail::lps_command
 {
   is_well_typed_command(const std::string& input_filename, const std::string& output_filename, const std::vector<std::string>& options)
@@ -133,6 +152,8 @@ public:
         rewrite_strategy()));
     add_command(
       std::make_shared<control_invariant_command>(input_filename(), output_filename(), options, rewrite_strategy()));
+    add_command(
+      std::make_shared<split_ranges_command>(input_filename(), output_filename(), options, rewrite_strategy()));
     add_command(std::make_shared<is_well_typed_command>(input_filename(), output_filename(), options));
     }
 };
