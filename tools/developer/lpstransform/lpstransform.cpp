@@ -15,6 +15,7 @@
 #include "mcrl2/lps/is_well_typed.h"
 #include "mcrl2/lps/one_point_rule_rewrite.h"
 #include "mcrl2/lps/rewrite.h"
+#include "mcrl2/lps/scoped_stategraph.h"
 #include "mcrl2/lps/split_ranges.h"
 #include "mcrl2/utilities/detail/io.h"
 #include "mcrl2/utilities/detail/transform_tool.h"
@@ -115,6 +116,29 @@ struct split_ranges_command : public lps::detail::lps_rewriter_command
   }
 };
 
+struct scoped_stategraph_command : public lps::detail::lps_rewriter_command
+{
+  lps::liveness_scopes scopes;
+
+  scoped_stategraph_command(const std::string& name,
+    lps::liveness_scopes scopes_,
+    const std::string& input_filename,
+    const std::string& output_filename,
+    const std::vector<std::string>& options,
+    data::rewrite_strategy strategy)
+    : lps::detail::lps_rewriter_command(name, input_filename, output_filename, options, strategy),
+      scopes(scopes_)
+  {}
+
+  void execute() override
+  {
+    lps::detail::lps_command::execute();
+    data::rewriter rewr(lpsspec.data(), strategy);
+    lps::scoped_stategraph(lpsspec, rewr, scopes);
+    lps::save_lps(lpsspec, output_filename);
+  }
+};
+
 struct is_well_typed_command: public lps::detail::lps_command
 {
   is_well_typed_command(const std::string& input_filename, const std::string& output_filename, const std::vector<std::string>& options)
@@ -154,6 +178,24 @@ public:
       std::make_shared<control_invariant_command>(input_filename(), output_filename(), options, rewrite_strategy()));
     add_command(
       std::make_shared<split_ranges_command>(input_filename(), output_filename(), options, rewrite_strategy()));
+    add_command(std::make_shared<scoped_stategraph_command>("scoped-stategraph-single",
+      lps::liveness_scopes::single,
+      input_filename(),
+      output_filename(),
+      options,
+      rewrite_strategy()));
+    add_command(std::make_shared<scoped_stategraph_command>("scoped-stategraph-pairs",
+      lps::liveness_scopes::pairs,
+      input_filename(),
+      output_filename(),
+      options,
+      rewrite_strategy()));
+    add_command(std::make_shared<scoped_stategraph_command>("scoped-stategraph-global",
+      lps::liveness_scopes::global,
+      input_filename(),
+      output_filename(),
+      options,
+      rewrite_strategy()));
     add_command(std::make_shared<is_well_typed_command>(input_filename(), output_filename(), options));
     }
 };
