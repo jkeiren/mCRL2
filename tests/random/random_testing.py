@@ -240,6 +240,11 @@ class LpsstategraphTest(ProcessTest):
         super().__init__(name, ymlfile('lpsstategraph'), settings)
         self.generate_process_parameters = True
 
+class LpscontrolinvariantTest(ProcessTest):
+    def __init__(self, name, settings):
+        super().__init__(name, ymlfile('lpscontrolinvariant'), settings)
+        self.generate_process_parameters = True
+
 class Lps2pbesTest(ProcessTest):
     def __init__(self, name, settings):
         super().__init__(name, ymlfile('lps2pbes'), settings)
@@ -522,6 +527,7 @@ available_tests = {
     'lps2lts-parallel'                            : lambda name, settings: Lps2ltsParallelTest(name, settings)                                         ,
     'lps2pbes'                                    : lambda name, settings: Lps2pbesTest(name, settings)                                                ,
     'lps2pres'                                    : lambda name, settings: Lps2presTest(name, settings)                                                ,
+    'lpscontrolinvariant'                         : lambda name, settings: LpscontrolinvariantTest(name, settings)                                     ,
     'lpsstategraph'                               : lambda name, settings: LpsstategraphTest(name, settings)                                           ,
     'lts2pbes'                                    : lambda name, settings: Lts2pbesTest(name, settings)                                                ,
     'lpsrewr'                                     : lambda name, settings: LpsrewrTest(name, settings)                                                ,
