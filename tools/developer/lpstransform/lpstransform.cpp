@@ -9,6 +9,7 @@
 /// \file transform.cpp
 
 #include "mcrl2/data/rewriter_tool.h"
+#include "mcrl2/lps/control_invariant.h"
 #include "mcrl2/lps/detail/lps_command.h"
 #include "mcrl2/lps/if_rewrite.h"
 #include "mcrl2/lps/is_well_typed.h"
@@ -77,6 +78,24 @@ struct if_rewriter_with_rewriter_command: public lps::detail::lps_rewriter_comma
   }
 };
 
+struct control_invariant_command : public lps::detail::lps_rewriter_command
+{
+  control_invariant_command(const std::string& input_filename,
+    const std::string& output_filename,
+    const std::vector<std::string>& options,
+    data::rewrite_strategy strategy)
+    : lps::detail::lps_rewriter_command("control-invariant", input_filename, output_filename, options, strategy)
+  {}
+
+  void execute() override
+  {
+    lps::detail::lps_command::execute();
+    data::rewriter rewr(lpsspec.data(), strategy);
+    lps::control_invariant(lpsspec, rewr);
+    lps::save_lps(lpsspec, output_filename);
+  }
+};
+
 struct is_well_typed_command: public lps::detail::lps_command
 {
   is_well_typed_command(const std::string& input_filename, const std::string& output_filename, const std::vector<std::string>& options)
@@ -112,6 +131,8 @@ public:
         output_filename(),
         options,
         rewrite_strategy()));
+    add_command(
+      std::make_shared<control_invariant_command>(input_filename(), output_filename(), options, rewrite_strategy()));
     add_command(std::make_shared<is_well_typed_command>(input_filename(), output_filename(), options));
     }
 };
