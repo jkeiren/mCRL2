@@ -10,13 +10,18 @@
 /// \brief Resets data parameters of an LPS that are dead, using liveness on scoped control flow graphs.
 ///
 /// A scope is a set of control flow parameters. For every scope in a family, the control flow
-/// graph on the valuations of the scope is computed (control_invariant_analysis::compute_scoped_graph),
-/// and the live data parameters are labelled on it, as in the local stategraph algorithm (Keiren,
-/// Wesselink and Willemse, ATVA 2014, Def. 16) with control flow parameters replaced by scopes. A
-/// data parameter is reset to its initial value in a summand if some scope that rules the summand
-/// owns the parameter and labels it dead after the summand. With singleton scopes this is the local
-/// algorithm; with the scope of all control flow parameters it is the global one. The empty scope is
-/// always included; it resets parameters that are never used again.
+/// graph on the valuations of the scope is computed (control_invariant_analysis::compute_scoped_graph).
+/// It has an edge for every summand that is applicable at a vertex, so it is a sound abstraction of
+/// the reachable control flow, and the live data parameters are labelled on it by a backward
+/// liveness analysis. A data parameter is reset to its initial value in a summand if some scope
+/// labels it dead at every target of the summand. The empty scope is always included; it resets
+/// parameters that are never used again.
+///
+/// Optionally (use_belongs), a data parameter is only labelled in the scopes it belongs to, and only a
+/// scope that rules a summand can justify a reset in it, as in the local stategraph algorithm (Keiren,
+/// Wesselink and Willemse, ATVA 2014, Defs. 15-16) with control flow parameters replaced by scopes.
+/// With singleton scopes this is the local algorithm. Without this restriction the analysis is at least
+/// as precise, and more precise for larger scopes.
 ///
 /// Trackable parameters (control_invariant_analysis) are never reset, because the invariant that is
 /// used to decide which summands are applicable depends on them. The result is strongly bisimilar to
@@ -41,7 +46,7 @@ namespace mcrl2::lps
 enum class liveness_scopes
 {
   single, ///< one scope per control flow parameter (the local stategraph algorithm)
-  pairs, ///< the pairs of control flow parameters that are both fixed by a summand, plus single parameters in no pair
+  pairs, ///< the pairs of control flow parameters that are both fixed by a summand, and all single parameters
   global ///< one scope with all control flow parameters (the global stategraph algorithm)
 };
 
@@ -66,6 +71,7 @@ protected:
   specification& m_spec;
   data::rewriter m_rewr;
   liveness_scopes m_scopes;
+  bool m_use_belongs;
 
   std::vector<data::variable> m_parameters;
   std::vector<bool> m_data;
@@ -177,7 +183,10 @@ protected:
       }
       return result;
     }
-    std::set<std::size_t> covered;
+    for (std::size_t c: cfps)
+    {
+      result.push_back({c});
+    }
     if (m_scopes == liveness_scopes::pairs)
     {
       for (const analysis_type::scope& S: analysis.scopes())
@@ -185,16 +194,7 @@ protected:
         if (analysis.control_flow(S.first) && analysis.control_flow(S.second))
         {
           result.push_back({S.first, S.second});
-          covered.insert(S.first);
-          covered.insert(S.second);
         }
-      }
-    }
-    for (std::size_t c: cfps)
-    {
-      if (covered.find(c) == covered.end())
-      {
-        result.push_back({c});
       }
     }
     return result;
@@ -210,6 +210,7 @@ protected:
     return std::all_of(S.begin(), S.end(), [&](std::size_t c) { return sources.find(c) != sources.end(); });
   }
 
+  // Without use_belongs, every data parameter belongs to every scope.
   std::set<std::size_t> compute_belongs(const analysis_type& analysis, const std::vector<std::size_t>& S) const
   {
     std::set<std::size_t> result;
@@ -217,6 +218,11 @@ protected:
     {
       if (!m_data[d])
       {
+        continue;
+      }
+      if (!m_use_belongs)
+      {
+        result.insert(d);
         continue;
       }
       bool belongs = true;
@@ -338,13 +344,13 @@ protected:
     }
   }
 
-  // Data parameter d can be reset in summand j if some scope that rules j owns d and labels it dead
-  // at every target of j.
+  // Data parameter d can be reset in summand j if some scope that owns d labels it dead at every
+  // target of j. With use_belongs, the scope must also rule j.
   bool dead_after(const analysis_type& analysis, std::size_t j, std::size_t d) const
   {
     for (const scope_info& info: m_infos)
     {
-      if (info.belongs.find(d) == info.belongs.end() || !rules(analysis, info.graph.scope, j)
+      if (info.belongs.find(d) == info.belongs.end() || (m_use_belongs && !rules(analysis, info.graph.scope, j))
           || info.edges_of[j].empty())
       {
         continue;
@@ -391,10 +397,11 @@ protected:
   }
 
 public:
-  scoped_stategraph_algorithm(specification& spec, const data::rewriter& rewr, liveness_scopes scopes)
+  scoped_stategraph_algorithm(specification& spec, const data::rewriter& rewr, liveness_scopes scopes, bool use_belongs)
     : m_spec(spec),
       m_rewr(rewr),
-      m_scopes(scopes)
+      m_scopes(scopes),
+      m_use_belongs(use_belongs)
   {}
 
   void run()
@@ -439,10 +446,13 @@ public:
 } // namespace detail
 
 /// \brief Resets dead data parameters of an LPS using liveness on scoped control flow graphs.
+/// \param use_belongs If true, a data parameter is only labelled in the scopes it belongs to, as in
+/// the local stategraph algorithm.
 /// Global variables are instantiated. The result is strongly bisimilar to the input.
-inline void scoped_stategraph(specification& spec, const data::rewriter& rewr, liveness_scopes scopes)
+inline void
+scoped_stategraph(specification& spec, const data::rewriter& rewr, liveness_scopes scopes, bool use_belongs = false)
 {
-  detail::scoped_stategraph_algorithm(spec, rewr, scopes).run();
+  detail::scoped_stategraph_algorithm(spec, rewr, scopes, use_belongs).run();
 }
 
 } // namespace mcrl2::lps

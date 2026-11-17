@@ -24,12 +24,12 @@ namespace
 {
 
 // The number of summands that reset parameter x to false.
-std::size_t resets_of_x(const std::string& text, lps::liveness_scopes scopes)
+std::size_t resets_of_x(const std::string& text, lps::liveness_scopes scopes, bool use_belongs = false)
 {
   lps::specification spec = lps::parse_linear_process_specification(text);
   data::rewriter rewr(spec.data());
   lps::split_ranges(spec, rewr);
-  lps::scoped_stategraph(spec, rewr, scopes);
+  lps::scoped_stategraph(spec, rewr, scopes, use_belongs);
   const lps::action_summand_vector& summands = spec.process().action_summands();
   return std::count_if(summands.begin(),
     summands.end(),
@@ -64,6 +64,29 @@ BOOST_AUTO_TEST_CASE(test_running_example)
   BOOST_CHECK_EQUAL(resets_of_x(text, lps::liveness_scopes::single), 0U);
   BOOST_CHECK_EQUAL(resets_of_x(text, lps::liveness_scopes::pairs), 2U);
   BOOST_CHECK_EQUAL(resets_of_x(text, lps::liveness_scopes::global), 3U);
+
+  // Here every summand that uses x is ruled by every scope, so restricting the labelling to the
+  // scopes that x belongs to (as in the local stategraph algorithm) makes no difference.
+  BOOST_CHECK_EQUAL(resets_of_x(text, lps::liveness_scopes::single, true), 0U);
+  BOOST_CHECK_EQUAL(resets_of_x(text, lps::liveness_scopes::pairs, true), 2U);
+  BOOST_CHECK_EQUAL(resets_of_x(text, lps::liveness_scopes::global, true), 3U);
+}
+
+// With the scope of all control flow parameters, a summand is only ruled if all of them are fixed
+// by its condition. Here the read of x does not fix b, so with the belongs restriction x belongs to
+// no scope other than the empty one, and is never reset. Without the restriction, x is found dead
+// after the read.
+BOOST_AUTO_TEST_CASE(test_global_without_belongs)
+{
+  const std::string text = "act write, read: Bool;\n"
+                           "proc P(a, b: Pos, x: Bool) =\n"
+                           "     sum v: Bool. (a == 1) -> write(v) . P(2, b, v)\n"
+                           "   + (a == 2) -> read(x) . P(3, b, x)\n"
+                           "   + (a == 3 && b == 1) -> tau . P(1, 2, x)\n"
+                           "   + (a == 3 && b == 2) -> tau . P(1, 1, x);\n"
+                           "init P(1, 1, false);\n";
+  BOOST_CHECK_EQUAL(resets_of_x(text, lps::liveness_scopes::global, true), 0U);
+  BOOST_CHECK_GE(resets_of_x(text, lps::liveness_scopes::global), 1U);
 }
 
 // As the running example, but slot 1 writes x in the step that hands control to slot 2, as in code
