@@ -14,8 +14,9 @@
 /// It has an edge for every summand that is applicable at a vertex, so it is a sound abstraction of
 /// the reachable control flow, and the live data parameters are labelled on it by a backward
 /// liveness analysis. A data parameter is reset to its initial value in a summand if some scope
-/// labels it dead at every target of the summand. The empty scope is always included; it resets
-/// parameters that are never used again.
+/// labels it dead at the target of the summand; if this depends on the source state, the reset is
+/// conditional on the values of the control flow parameters. The empty scope is always included; it
+/// resets parameters that are never used again.
 ///
 /// Optionally (use_belongs), a data parameter is only labelled in the scopes it belongs to, and only a
 /// scope that rules a summand can justify a reset in it, as in the local stategraph algorithm (Keiren,
@@ -23,13 +24,15 @@
 /// With singleton scopes this is the local algorithm. Without this restriction the analysis is at least
 /// as precise, and more precise for larger scopes.
 ///
-/// Trackable parameters (control_invariant_analysis) are never reset, because the invariant that is
-/// used to decide which summands are applicable depends on them. The result is strongly bisimilar to
+/// Parameters that occur in a scope of the invariant (control_invariant_analysis) are never reset,
+/// because the invariant that is used to decide which summands are applicable depends on them. The
+/// result is strongly bisimilar to
 /// the input. Global variables are instantiated.
 
 #ifndef MCRL2_LPS_SCOPED_STATEGRAPH_H
 #define MCRL2_LPS_SCOPED_STATEGRAPH_H
 
+#include "mcrl2/data/standard_utility.h"
 #include "mcrl2/data/substitutions/mutable_map_substitution.h"
 #include "mcrl2/lps/detail/control_invariant_analysis.h"
 #include "mcrl2/lps/detail/instantiate_global_variables.h"
@@ -344,10 +347,25 @@ protected:
     }
   }
 
-  // Data parameter d can be reset in summand j if some scope that owns d labels it dead at every
-  // target of j. With use_belongs, the scope must also rule j.
-  bool dead_after(const analysis_type& analysis, std::size_t j, std::size_t d) const
+  // The condition that the control flow parameters have the values of p.
+  data::data_expression matches(const valuation& p) const
   {
+    std::vector<data::data_expression> conjuncts;
+    for (const auto& [c, v]: p)
+    {
+      conjuncts.push_back(data::equal_to(m_parameters[c], v));
+    }
+    return data::lazy::join_and(conjuncts.begin(), conjuncts.end());
+  }
+
+  // The condition on the source state under which data parameter d is dead after summand j: some
+  // scope that owns d (and, with use_belongs, rules j) labels d dead at the target of the edge of j
+  // from the projection of the source state. On reachable states, the projection of the source
+  // state is the source of an edge of j in every scope. Without use_belongs the reset is therefore a
+  // function of the target state.
+  data::data_expression reset_condition(const analysis_type& analysis, std::size_t j, std::size_t d) const
+  {
+    std::vector<data::data_expression> disjuncts;
     for (const scope_info& info: m_infos)
     {
       if (info.belongs.find(d) == info.belongs.end() || (m_use_belongs && !rules(analysis, info.graph.scope, j))
@@ -355,21 +373,45 @@ protected:
       {
         continue;
       }
-      const bool dead = std::all_of(info.edges_of[j].begin(),
-        info.edges_of[j].end(),
-        [&](const std::pair<std::size_t, std::size_t>& e)
-        { return info.label[e.second].find(d) == info.label[e.second].end(); });
-      if (dead)
+      std::vector<data::data_expression> dead;
+      std::vector<data::data_expression> live;
+      for (const auto& [u, w]: info.edges_of[j])
       {
-        return true;
+        const bool is_dead = info.label[w].find(d) == info.label[w].end();
+        (is_dead ? dead : live).push_back(matches(info.graph.vertices[u]));
+      }
+      if (dead.empty())
+      {
+        continue;
+      }
+      if (live.empty())
+      {
+        return data::sort_bool::true_();
+      }
+      if (dead.size() <= live.size())
+      {
+        disjuncts.push_back(data::lazy::join_or(dead.begin(), dead.end()));
+      }
+      else
+      {
+        disjuncts.push_back(data::lazy::not_(data::lazy::join_or(live.begin(), live.end())));
       }
     }
-    return false;
+    return data::lazy::join_or(disjuncts.begin(), disjuncts.end());
   }
 
-  std::size_t reset(const analysis_type& analysis)
+  // Resets dead data parameters; returns the number of unconditional and of conditional resets.
+  // Parameters that occur in a scope of the invariant are not reset: the invariant reads them.
+  std::pair<std::size_t, std::size_t> reset(const analysis_type& analysis)
   {
-    std::size_t resets = 0;
+    std::set<std::size_t> in_invariant;
+    for (const analysis_type::scope& S: analysis.scopes())
+    {
+      in_invariant.insert(S.first);
+      in_invariant.insert(S.second);
+    }
+    std::size_t unconditional = 0;
+    std::size_t conditional = 0;
     for (std::size_t j = 0; j < action_summand_count(); ++j)
     {
       if (analysis.dead(j))
@@ -381,10 +423,19 @@ protected:
       for (std::size_t l = 0; l < m_parameters.size(); ++l)
       {
         data::data_expression rhs = next_state_value(s, l);
-        if (m_data[l] && !analysis.trackable(l) && rhs != analysis.initial_value(l) && dead_after(analysis, j, l))
+        if (m_data[l] && in_invariant.find(l) == in_invariant.end() && rhs != analysis.initial_value(l))
         {
-          rhs = analysis.initial_value(l);
-          ++resets;
+          const data::data_expression condition = reset_condition(analysis, j, l);
+          if (data::sort_bool::is_true_function_symbol(condition))
+          {
+            rhs = analysis.initial_value(l);
+            ++unconditional;
+          }
+          else if (!data::sort_bool::is_false_function_symbol(condition))
+          {
+            rhs = data::if_(condition, analysis.initial_value(l), rhs);
+            ++conditional;
+          }
         }
         if (rhs != m_parameters[l])
         {
@@ -393,7 +444,7 @@ protected:
       }
       s.assignments() = data::assignment_list(assignments.begin(), assignments.end());
     }
-    return resets;
+    return {unconditional, conditional};
   }
 
 public:
@@ -437,9 +488,10 @@ public:
       m_infos.push_back(std::move(info));
     }
     compute_labels();
-    const std::size_t resets = reset(analysis);
+    const auto [unconditional, conditional] = reset(analysis);
     mCRL2log(log::log_level_t::verbose) << "scoped stategraph: " << m_infos.size() << " scopes with " << vertices
-                                        << " vertices and " << edges << " edges, " << resets << " resets" << std::endl;
+                                        << " vertices and " << edges << " edges, " << unconditional << " resets, "
+                                        << conditional << " conditional resets" << std::endl;
   }
 };
 
