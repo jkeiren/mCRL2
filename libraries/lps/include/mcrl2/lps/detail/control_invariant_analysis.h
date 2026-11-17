@@ -26,9 +26,11 @@
 #include "mcrl2/lps/specification.h"
 
 #include <algorithm>
+#include <cassert>
 #include <map>
 #include <optional>
 #include <set>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -59,7 +61,9 @@ protected:
   std::vector<valuation> m_derived;
 
   // Per parameter.
+  std::vector<data::data_expression> m_init_values;
   std::vector<bool> m_trackable;
+  std::vector<bool> m_control_flow;
   std::vector<std::set<data::data_expression>> m_values;
 
   std::vector<scope> m_scopes;
@@ -164,12 +168,12 @@ protected:
 
   void compute_trackable_parameters()
   {
-    const data::data_expression_list& init = m_spec.initial_process().expressions();
-    std::vector<data::data_expression> init_values;
-    for (const data::data_expression& e: init)
+    m_init_values.clear();
+    for (const data::data_expression& e: m_spec.initial_process().expressions())
     {
-      init_values.push_back(m_rewr(e));
+      m_init_values.push_back(m_rewr(e));
     }
+    const std::vector<data::data_expression>& init_values = m_init_values;
     m_trackable.assign(m_parameters.size(), false);
     m_values.assign(m_parameters.size(), std::set<data::data_expression>());
     for (std::size_t i = 0; i < m_parameters.size(); ++i)
@@ -225,11 +229,9 @@ protected:
       }
     }
     m_scopes.assign(scopes.begin(), scopes.end());
-    const data::data_expression_list& init = m_spec.initial_process().expressions();
-    std::vector<data::data_expression> init_values(init.begin(), init.end());
     for (const scope& S: m_scopes)
     {
-      m_reachable[S] = {{m_rewr(init_values[S.first]), m_rewr(init_values[S.second])}};
+      m_reachable[S] = {{m_init_values[S.first], m_init_values[S.second]}};
       m_scopes_of[S.first].push_back(S);
       m_scopes_of[S.second].push_back(S);
     }
@@ -363,7 +365,41 @@ protected:
     }
   }
 
+  // A trackable parameter is a control flow parameter if every summand that is not dead and that
+  // changes it has a (possibly derived) source for it. Its target is then defined as well.
+  void compute_control_flow_parameters()
+  {
+    m_control_flow.assign(m_parameters.size(), false);
+    for (std::size_t i = 0; i < m_parameters.size(); ++i)
+    {
+      if (!m_trackable[i])
+      {
+        continue;
+      }
+      bool control_flow = true;
+      for (std::size_t j = 0; j < action_summand_count() && control_flow; ++j)
+      {
+        if (!m_dead[j] && m_assigned[j].find(i) != m_assigned[j].end())
+        {
+          const valuation sj = effective_sources(j);
+          control_flow = sj.find(i) != sj.end();
+        }
+      }
+      m_control_flow[i] = control_flow;
+    }
+  }
+
 public:
+  /// \brief A control flow graph on the valuations of a scope (a set of control flow parameters).
+  /// It has an edge (u, j, v) if summand j is applicable at vertex u and leads to v.
+  struct scoped_graph
+  {
+    std::vector<std::size_t> scope;
+    std::vector<valuation> vertices;
+    std::map<valuation, std::size_t> index;
+    std::vector<std::tuple<std::size_t, std::size_t, std::size_t>> edges;
+  };
+
   /// \brief Constructor. The global variables of spec must have been instantiated.
   control_invariant_analysis(const specification& spec, const data::rewriter& rewr)
     : m_spec(spec),
@@ -380,6 +416,7 @@ public:
     compute_scopes();
     compute_reachable_pairs();
     derive();
+    compute_control_flow_parameters();
   }
 
   std::size_t action_summand_count() const
@@ -447,6 +484,93 @@ public:
   const valuation& derived(std::size_t j) const
   {
     return m_derived[j];
+  }
+
+  /// \brief Returns true if parameter i is a control flow parameter: it is trackable, and every
+  /// summand that is not dead and changes it has a (possibly derived) source for it.
+  bool control_flow(std::size_t i) const
+  {
+    return m_control_flow[i];
+  }
+
+  /// \brief The initial value of parameter i, rewritten.
+  const data::data_expression& initial_value(std::size_t i) const
+  {
+    return m_init_values[i];
+  }
+
+  /// \brief The sources of the trackable parameters in summand j, including the derived ones.
+  valuation effective_sources(std::size_t j) const
+  {
+    valuation result = tracked_sources(j);
+    result.insert(m_derived[j].begin(), m_derived[j].end());
+    return result;
+  }
+
+  /// \brief Returns true if summand j is not dead, its sources agree with the valuation p of
+  /// (some) control flow parameters, and the combination is consistent with the invariant.
+  bool applicable(std::size_t j, const valuation& p) const
+  {
+    if (m_dead[j])
+    {
+      return false;
+    }
+    valuation q = effective_sources(j);
+    for (const auto& [c, v]: p)
+    {
+      auto k = q.find(c);
+      if (k != q.end() && k->second != v)
+      {
+        return false;
+      }
+      q[c] = v;
+    }
+    return consistent(q);
+  }
+
+  /// \brief Computes the control flow graph of the scope S, whose elements must be control flow
+  /// parameters, by exploring the valuations of S reachable from the initial state via applicable
+  /// action summands. The empty scope yields a graph with a single vertex.
+  scoped_graph compute_scoped_graph(const std::vector<std::size_t>& S) const
+  {
+    scoped_graph G;
+    G.scope = S;
+    valuation init;
+    for (std::size_t c: S)
+    {
+      assert(m_control_flow[c]);
+      init[c] = m_init_values[c];
+    }
+    G.vertices.push_back(init);
+    G.index[init] = 0;
+    for (std::size_t u = 0; u < G.vertices.size(); ++u)
+    {
+      for (std::size_t j = 0; j < action_summand_count(); ++j)
+      {
+        // G.vertices may grow in this loop, so copy the vertex.
+        const valuation p = G.vertices[u];
+        if (!applicable(j, p))
+        {
+          continue;
+        }
+        valuation w = p;
+        for (std::size_t c: S)
+        {
+          auto k = m_targets[j].find(c);
+          if (k != m_targets[j].end())
+          {
+            w[c] = k->second;
+          }
+        }
+        auto [i, inserted] = G.index.insert({w, G.vertices.size()});
+        if (inserted)
+        {
+          G.vertices.push_back(w);
+        }
+        G.edges.emplace_back(u, j, i->second);
+      }
+    }
+    return G;
   }
 
   /// \brief A partial valuation is consistent if its restriction to every fully determined scope is
