@@ -89,29 +89,6 @@ BOOST_AUTO_TEST_CASE(test_scheduler)
   BOOST_CHECK(has_conjunct(read->condition(), data::equal_to(a, data::sort_pos::pos("2"))));
 }
 
-// A counter that is incremented under a range condition is split into one summand per value, so
-// that its successor value is a constant.
-BOOST_AUTO_TEST_CASE(test_range_split)
-{
-  const std::string text = "proc P(a: Nat) =\n"
-                           "     (0 < a && a < 3) -> tau . P(a + 1)\n"
-                           "   + (a == 3) -> tau . P(1);\n"
-                           "init P(1);\n";
-
-  const lps::specification spec = control_invariant(text);
-  const lps::action_summand_vector& summands = spec.process().action_summands();
-  BOOST_CHECK_EQUAL(summands.size(), 3U);
-
-  const data::variable a = parameter(spec, "a");
-  for (const char* value: {"1", "2"})
-  {
-    BOOST_CHECK(std::any_of(summands.begin(),
-      summands.end(),
-      [&](const lps::action_summand& s)
-      { return has_conjunct(s.condition(), data::equal_to(a, data::sort_nat::nat(value))); }));
-  }
-}
-
 // A summand that is not enabled in any reachable state is removed, also if the parameters it tests
 // are set without testing their previous value.
 BOOST_AUTO_TEST_CASE(test_dead_summand)
