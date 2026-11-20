@@ -107,6 +107,35 @@ BOOST_AUTO_TEST_CASE(test_write_on_completion)
   BOOST_CHECK_EQUAL(resets_of_x(text, lps::liveness_scopes::pairs), 4U);
 }
 
+// x occurs in the scope (c, x) of the invariant, but it is not a control flow parameter, because b
+// changes it without fixing it. It is dead once c is 2. The invariant shows that bad is never
+// enabled, since x is true whenever c is 3. Resetting x to false would enable bad if it were kept, so
+// the invariant is made explicit: bad is removed, and x can be reset.
+BOOST_AUTO_TEST_CASE(test_reset_parameter_of_invariant)
+{
+  const std::string text = "act a, b, bad;\n"
+                           "proc P(c: Pos, x: Bool) =\n"
+                           "     (c == 1 && x) -> a . P(2, x)\n"
+                           "   + (c == 1) -> b . P(c, true)\n"
+                           "   + (c == 2) -> tau . P(3, x)\n"
+                           "   + (c == 3 && !x) -> bad . P(c, x)\n"
+                           "   + (c == 3) -> tau . P(c, x);\n"
+                           "init P(1, false);\n";
+  BOOST_CHECK_EQUAL(resets_of_x(text, lps::liveness_scopes::single), 3U);
+
+  lps::specification spec = lps::parse_linear_process_specification(text);
+  data::rewriter rewr(spec.data());
+  lps::scoped_stategraph(spec, rewr, lps::liveness_scopes::single);
+  const lps::action_summand_vector& summands = spec.process().action_summands();
+  BOOST_CHECK(std::none_of(summands.begin(),
+    summands.end(),
+    [](const lps::action_summand& s)
+    {
+      return !s.multi_action().actions().empty()
+             && std::string(s.multi_action().actions().front().label().name()) == "bad";
+    }));
+}
+
 // A data parameter that is never used is reset by the empty scope, also without control flow
 // parameters. (y is not trackable: its new value depends on a summation variable.)
 BOOST_AUTO_TEST_CASE(test_unused)

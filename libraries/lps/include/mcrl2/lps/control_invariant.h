@@ -29,21 +29,28 @@ namespace mcrl2::lps
 namespace detail
 {
 
-inline data::data_expression
-strengthen(const control_invariant_analysis& analysis, std::size_t j, const data::data_expression& cond)
+inline data::data_expression strengthen(const control_invariant_analysis& analysis,
+  std::size_t j,
+  const data::data_expression& cond,
+  bool control_flow_only)
 {
   data::data_expression result = cond;
   for (const auto& [i, v]: analysis.derived(j))
   {
-    result = data::sort_bool::and_(data::equal_to(analysis.parameters()[i], v), result);
+    if (!control_flow_only || analysis.control_flow(i))
+    {
+      result = data::sort_bool::and_(data::equal_to(analysis.parameters()[i], v), result);
+    }
   }
   return result;
 }
 
-/// \brief Conjoins the derived sources of every summand that is not dead to its condition.
+/// \brief Conjoins the derived sources of every summand that is not dead to its condition; if
+/// control_flow_only is true, only those of control flow parameters.
 /// The analysis must have been computed on spec; it remains valid, since it does not read the
 /// conditions after it has run.
-inline void strengthen_conditions(specification& spec, const control_invariant_analysis& analysis)
+inline void
+strengthen_conditions(specification& spec, const control_invariant_analysis& analysis, bool control_flow_only = false)
 {
   const std::size_t n_action = analysis.action_summand_count();
   for (std::size_t j = 0; j < analysis.summand_count(); ++j)
@@ -55,12 +62,12 @@ inline void strengthen_conditions(specification& spec, const control_invariant_a
     if (j < n_action)
     {
       action_summand& s = spec.process().action_summands()[j];
-      s.condition() = strengthen(analysis, j, s.condition());
+      s.condition() = strengthen(analysis, j, s.condition(), control_flow_only);
     }
     else
     {
       deadlock_summand& s = spec.process().deadlock_summands()[j - n_action];
-      s.condition() = strengthen(analysis, j, s.condition());
+      s.condition() = strengthen(analysis, j, s.condition(), control_flow_only);
     }
   }
 }
