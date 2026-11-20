@@ -29,22 +29,71 @@ namespace mcrl2::lps
 namespace detail
 {
 
+inline data::data_expression
+strengthen(const control_invariant_analysis& analysis, std::size_t j, const data::data_expression& cond)
+{
+  data::data_expression result = cond;
+  for (const auto& [i, v]: analysis.derived(j))
+  {
+    result = data::sort_bool::and_(data::equal_to(analysis.parameters()[i], v), result);
+  }
+  return result;
+}
+
+/// \brief Conjoins the derived sources of every summand that is not dead to its condition.
+/// The analysis must have been computed on spec; it remains valid, since it does not read the
+/// conditions after it has run.
+inline void strengthen_conditions(specification& spec, const control_invariant_analysis& analysis)
+{
+  const std::size_t n_action = analysis.action_summand_count();
+  for (std::size_t j = 0; j < analysis.summand_count(); ++j)
+  {
+    if (analysis.dead(j))
+    {
+      continue;
+    }
+    if (j < n_action)
+    {
+      action_summand& s = spec.process().action_summands()[j];
+      s.condition() = strengthen(analysis, j, s.condition());
+    }
+    else
+    {
+      deadlock_summand& s = spec.process().deadlock_summands()[j - n_action];
+      s.condition() = strengthen(analysis, j, s.condition());
+    }
+  }
+}
+
+/// \brief Removes the dead summands of spec. Afterwards the analysis no longer matches spec.
+inline void remove_dead_summands(specification& spec, const control_invariant_analysis& analysis)
+{
+  const std::size_t n_action = analysis.action_summand_count();
+  action_summand_vector action_summands;
+  for (std::size_t j = 0; j < n_action; ++j)
+  {
+    if (!analysis.dead(j))
+    {
+      action_summands.push_back(spec.process().action_summands()[j]);
+    }
+  }
+  deadlock_summand_vector deadlock_summands;
+  for (std::size_t j = n_action; j < analysis.summand_count(); ++j)
+  {
+    if (!analysis.dead(j))
+    {
+      deadlock_summands.push_back(spec.process().deadlock_summands()[j - n_action]);
+    }
+  }
+  spec.process().action_summands() = action_summands;
+  spec.process().deadlock_summands() = deadlock_summands;
+}
+
 class control_invariant_algorithm
 {
 protected:
   specification& m_spec;
   data::rewriter m_rewr;
-
-  static data::data_expression
-  strengthen(const control_invariant_analysis& analysis, std::size_t j, const data::data_expression& cond)
-  {
-    data::data_expression result = cond;
-    for (const auto& [i, v]: analysis.derived(j))
-    {
-      result = data::sort_bool::and_(data::equal_to(analysis.parameters()[i], v), result);
-    }
-    return result;
-  }
 
   static void log_statistics(const control_invariant_analysis& analysis)
   {
@@ -89,30 +138,8 @@ public:
     control_invariant_analysis analysis(m_spec, m_rewr);
     analysis.run();
     log_statistics(analysis);
-
-    const std::size_t n_action = analysis.action_summand_count();
-    action_summand_vector action_summands;
-    for (std::size_t j = 0; j < n_action; ++j)
-    {
-      if (!analysis.dead(j))
-      {
-        action_summand s = m_spec.process().action_summands()[j];
-        s.condition() = strengthen(analysis, j, s.condition());
-        action_summands.push_back(s);
-      }
-    }
-    deadlock_summand_vector deadlock_summands;
-    for (std::size_t j = n_action; j < analysis.summand_count(); ++j)
-    {
-      if (!analysis.dead(j))
-      {
-        deadlock_summand s = m_spec.process().deadlock_summands()[j - n_action];
-        s.condition() = strengthen(analysis, j, s.condition());
-        deadlock_summands.push_back(s);
-      }
-    }
-    m_spec.process().action_summands() = action_summands;
-    m_spec.process().deadlock_summands() = deadlock_summands;
+    strengthen_conditions(m_spec, analysis);
+    remove_dead_summands(m_spec, analysis);
   }
 };
 
