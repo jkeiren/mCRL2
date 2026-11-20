@@ -24,9 +24,12 @@
 /// With singleton scopes this is the local algorithm. Without this restriction the analysis is at least
 /// as precise, and more precise for larger scopes.
 ///
-/// Parameters that occur in a scope of the invariant (control_invariant_analysis) are never reset,
-/// because the invariant that is used to decide which summands are applicable depends on them. The
-/// result is strongly bisimilar to
+/// The invariant (control_invariant_analysis) that decides which summands are applicable reads the
+/// parameters in its scopes. Resetting such a parameter could enable a summand that the invariant
+/// rules out. The invariant is therefore made explicit, as in control_invariant: the derived sources
+/// of control flow parameters are conjoined to the conditions and dead summands are removed. The
+/// parameters of the invariant are significant in the condition of every summand whose sources agree
+/// with the vertex, whether or not the invariant allows it there. The result is strongly bisimilar to
 /// the input. Global variables are instantiated.
 
 #ifndef MCRL2_LPS_SCOPED_STATEGRAPH_H
@@ -34,8 +37,7 @@
 
 #include "mcrl2/data/standard_utility.h"
 #include "mcrl2/data/substitutions/mutable_map_substitution.h"
-#include "mcrl2/lps/detail/control_invariant_analysis.h"
-#include "mcrl2/lps/detail/instantiate_global_variables.h"
+#include "mcrl2/lps/control_invariant.h"
 #include "mcrl2/lps/find.h"
 
 #include <algorithm>
@@ -82,6 +84,7 @@ protected:
   std::vector<std::set<std::size_t>> m_used_in; // per summand
   std::vector<std::set<std::size_t>> m_changed; // per summand
   std::vector<std::vector<std::set<std::size_t>>> m_fv_update; // per action summand, per parameter
+  std::set<std::size_t> m_in_invariant; // the parameters that occur in a scope of the invariant
   std::vector<scope_info> m_infos;
 
   std::size_t action_summand_count() const
@@ -251,12 +254,7 @@ protected:
   // the values of the scope, and those in its actions.
   std::set<std::size_t> significant(std::size_t j, const valuation& p) const
   {
-    data::mutable_map_substitution<> sigma;
-    for (const auto& [c, v]: p)
-    {
-      sigma[m_parameters[c]] = v;
-    }
-    std::set<std::size_t> result = data_parameters_in(data::find_free_variables(m_rewr(condition(j), sigma)));
+    std::set<std::size_t> result = in_condition(j, p);
     if (j < action_summand_count())
     {
       for (std::size_t d:
@@ -268,18 +266,70 @@ protected:
     return result;
   }
 
+  // The data parameters in the condition of summand j simplified with the values of the scope.
+  std::set<std::size_t> in_condition(std::size_t j, const valuation& p) const
+  {
+    data::mutable_map_substitution<> sigma;
+    for (const auto& [c, v]: p)
+    {
+      sigma[m_parameters[c]] = v;
+    }
+    return data_parameters_in(data::find_free_variables(m_rewr(condition(j), sigma)));
+  }
+
+  // Returns true if summand j is not dead and its sources, including the derived ones, agree with
+  // the valuation p of control flow parameters. The derived sources of control flow parameters are
+  // conjuncts of the strengthened condition.
+  static bool sources_agree(const analysis_type& analysis, std::size_t j, const valuation& p)
+  {
+    if (analysis.dead(j))
+    {
+      return false;
+    }
+    const valuation& sources = analysis.sources(j);
+    const valuation& derived = analysis.derived(j);
+    return std::all_of(p.begin(),
+      p.end(),
+      [&](const std::pair<const std::size_t, data::data_expression>& cv)
+      {
+        auto k = sources.find(cv.first);
+        if (k != sources.end())
+        {
+          return k->second == cv.second;
+        }
+        k = derived.find(cv.first);
+        return k == derived.end() || k->second == cv.second;
+      });
+  }
+
+  // A data parameter that occurs in a scope of the invariant may be read by a summand that the
+  // invariant rules out at a vertex. Resetting it could enable that summand, so it is significant in
+  // the condition of every summand whose sources agree with the vertex, ignoring the invariant. This
+  // relies on the strengthened conditions and the removal of dead summands (run).
   void initialise_labels(const analysis_type& analysis, scope_info& info) const
   {
     info.label.assign(info.graph.vertices.size(), {});
     for (std::size_t u = 0; u < info.graph.vertices.size(); ++u)
     {
+      const valuation& p = info.graph.vertices[u];
       for (std::size_t j = 0; j < summand_count(); ++j)
       {
-        if (!analysis.applicable(j, info.graph.vertices[u]))
+        std::set<std::size_t> significant_j;
+        if (analysis.applicable(j, p))
         {
-          continue;
+          significant_j = significant(j, p);
         }
-        for (std::size_t d: significant(j, info.graph.vertices[u]))
+        else if (sources_agree(analysis, j, p))
+        {
+          for (std::size_t d: in_condition(j, p))
+          {
+            if (m_in_invariant.find(d) != m_in_invariant.end())
+            {
+              significant_j.insert(d);
+            }
+          }
+        }
+        for (std::size_t d: significant_j)
         {
           if (info.belongs.find(d) != info.belongs.end())
           {
@@ -401,15 +451,8 @@ protected:
   }
 
   // Resets dead data parameters; returns the number of unconditional and of conditional resets.
-  // Parameters that occur in a scope of the invariant are not reset: the invariant reads them.
   std::pair<std::size_t, std::size_t> reset(const analysis_type& analysis)
   {
-    std::set<std::size_t> in_invariant;
-    for (const analysis_type::scope& S: analysis.scopes())
-    {
-      in_invariant.insert(S.first);
-      in_invariant.insert(S.second);
-    }
     std::size_t unconditional = 0;
     std::size_t conditional = 0;
     for (std::size_t j = 0; j < action_summand_count(); ++j)
@@ -423,7 +466,7 @@ protected:
       for (std::size_t l = 0; l < m_parameters.size(); ++l)
       {
         data::data_expression rhs = next_state_value(s, l);
-        if (m_data[l] && in_invariant.find(l) == in_invariant.end() && rhs != analysis.initial_value(l))
+        if (m_data[l] && rhs != analysis.initial_value(l))
         {
           const data::data_expression condition = reset_condition(analysis, j, l);
           if (data::sort_bool::is_true_function_symbol(condition))
@@ -460,6 +503,11 @@ public:
     lps::detail::instantiate_global_variables(m_spec);
     analysis_type analysis(m_spec, m_rewr);
     analysis.run();
+    // Make the invariant explicit, so that the relaxed significance of the parameters of the invariant
+    // (initialise_labels) can rely on it: the derived sources of control flow parameters become
+    // conjuncts of the conditions, and the dead summands are removed at the end. Derived sources of
+    // data parameters are not needed, and would make those parameters live.
+    strengthen_conditions(m_spec, analysis, true);
 
     const data::variable_list& parameters = m_spec.process().process_parameters();
     m_parameters.assign(parameters.begin(), parameters.end());
@@ -469,6 +517,11 @@ public:
       m_data[i] = !analysis.control_flow(i);
     }
     compute_uses();
+    for (const analysis_type::scope& S: analysis.scopes())
+    {
+      m_in_invariant.insert(S.first);
+      m_in_invariant.insert(S.second);
+    }
 
     std::size_t vertices = 0;
     std::size_t edges = 0;
@@ -489,6 +542,7 @@ public:
     }
     compute_labels();
     const auto [unconditional, conditional] = reset(analysis);
+    remove_dead_summands(m_spec, analysis);
     mCRL2log(log::log_level_t::verbose) << "scoped stategraph: " << m_infos.size() << " scopes with " << vertices
                                         << " vertices and " << edges << " edges, " << unconditional << " resets, "
                                         << conditional << " conditional resets" << std::endl;
