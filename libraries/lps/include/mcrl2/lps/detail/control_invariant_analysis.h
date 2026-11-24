@@ -417,6 +417,43 @@ public:
     compute_reachable_pairs();
     derive();
     compute_control_flow_parameters();
+    log_parameters();
+  }
+
+  // Logs the trackable parameters, and for those that are not control flow parameters a summand
+  // that changes them without a (derived) source.
+  void log_parameters() const
+  {
+    if (!mCRL2logEnabled(log::log_level_t::debug))
+    {
+      return;
+    }
+    for (std::size_t i = 0; i < m_parameters.size(); ++i)
+    {
+      if (!m_trackable[i])
+      {
+        continue;
+      }
+      mCRL2log(log::log_level_t::debug) << "control invariant: " << m_parameters[i]
+                                        << (m_control_flow[i] ? " is a control flow parameter" : " is trackable");
+      if (!m_control_flow[i])
+      {
+        for (std::size_t j = 0; j < action_summand_count(); ++j)
+        {
+          const valuation sj = effective_sources(j);
+          if (!m_dead[j] && m_assigned[j].find(i) != m_assigned[j].end() && sj.find(i) == sj.end())
+          {
+            mCRL2log(log::log_level_t::debug) << "; no source in summand " << j << " with sources";
+            for (const auto& [c, v]: sj)
+            {
+              mCRL2log(log::log_level_t::debug) << " " << m_parameters[c] << " = " << v;
+            }
+            break;
+          }
+        }
+      }
+      mCRL2log(log::log_level_t::debug) << std::endl;
+    }
   }
 
   std::size_t action_summand_count() const
