@@ -16,6 +16,7 @@
 #include "mcrl2/lps/one_point_rule_rewrite.h"
 #include "mcrl2/lps/rewrite.h"
 #include "mcrl2/lps/scoped_stategraph.h"
+#include "mcrl2/lps/split_enumerations.h"
 #include "mcrl2/lps/split_ranges.h"
 #include "mcrl2/utilities/detail/io.h"
 #include "mcrl2/utilities/detail/transform_tool.h"
@@ -118,6 +119,24 @@ struct split_ranges_command : public lps::detail::lps_rewriter_command
   }
 };
 
+struct split_enumerations_command : public lps::detail::lps_rewriter_command
+{
+  split_enumerations_command(const std::string& input_filename,
+    const std::string& output_filename,
+    const std::vector<std::string>& options,
+    data::rewrite_strategy strategy)
+    : lps::detail::lps_rewriter_command("split-enumerations", input_filename, output_filename, options, strategy)
+  {}
+
+  void execute() override
+  {
+    lps::detail::lps_command::execute();
+    data::rewriter rewr(lpsspec.data(), strategy);
+    lps::split_enumerations(lpsspec, rewr);
+    lps::save_lps(lpsspec, output_filename);
+  }
+};
+
 struct scoped_stategraph_command : public lps::detail::lps_rewriter_command
 {
   lps::liveness_scopes scopes;
@@ -186,6 +205,8 @@ public:
       std::make_shared<control_invariant_command>(input_filename(), output_filename(), options, rewrite_strategy()));
     add_command(
       std::make_shared<split_ranges_command>(input_filename(), output_filename(), options, rewrite_strategy()));
+    add_command(
+      std::make_shared<split_enumerations_command>(input_filename(), output_filename(), options, rewrite_strategy()));
     const std::vector<std::pair<std::string, lps::liveness_scopes>> scope_families
       = {{"single", lps::liveness_scopes::single},
         {"pairs", lps::liveness_scopes::pairs},

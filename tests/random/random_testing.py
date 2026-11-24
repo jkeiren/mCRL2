@@ -250,6 +250,11 @@ class LpssplitrangesTest(ProcessTest):
         super().__init__(name, ymlfile('lpssplitranges'), settings)
         self.generate_process_parameters = True
 
+class LpssplitenumerationsTest(ProcessTest):
+    def __init__(self, name, settings):
+        super().__init__(name, ymlfile('lpssplitenumerations'), settings)
+        self.generate_process_parameters = True
+
 class LpsscopedstategraphTest(ProcessTest):
     def __init__(self, name, scopes, settings):
         super().__init__(name, ymlfile('lpsscopedstategraph-' + scopes), settings)
@@ -539,6 +544,7 @@ available_tests = {
     'lps2pres'                                    : lambda name, settings: Lps2presTest(name, settings)                                                ,
     'lpscontrolinvariant'                         : lambda name, settings: LpscontrolinvariantTest(name, settings)                                     ,
     'lpssplitranges'                              : lambda name, settings: LpssplitrangesTest(name, settings)                                          ,
+    'lpssplitenumerations'                        : lambda name, settings: LpssplitenumerationsTest(name, settings)                                    ,
     'lpsscopedstategraph-pairs'                   : lambda name, settings: LpsscopedstategraphTest(name, 'pairs', settings)                            ,
     'lpsscopedstategraph-global'                  : lambda name, settings: LpsscopedstategraphTest(name, 'global', settings)                           ,
     'lpsscopedstategraph-global-unconditional'    : lambda name, settings: LpsscopedstategraphTest(name, 'global-unconditional', settings)             ,
