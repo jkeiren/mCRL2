@@ -155,21 +155,15 @@ BOOST_AUTO_TEST_CASE(test_unused)
   BOOST_CHECK(y_reset);
 }
 
-// A summand whose target depends on the source state can lead to vertices where a parameter is
-// dead and to vertices where it is live. It then gets a conditional reset. Here tick keeps the
-// control state; x is only live at (a, b) = (2, 1), before the read.
-BOOST_AUTO_TEST_CASE(test_conditional_reset)
+namespace
 {
-  const std::string text = "act write, read: Bool; tick;\n"
-                           "proc P(a, b: Pos, x: Bool) =\n"
-                           "     sum v: Bool. (a == 1) -> write(v) . P(2, b, v)\n"
-                           "   + (a == 2 && b == 1) -> read(x) . P(1, 2, x)\n"
-                           "   + (a == 2 && b == 2) -> tau . P(1, 1, x)\n"
-                           "   + tick . P(a, b, x);\n"
-                           "init P(1, 1, false);\n";
+
+// The right-hand side of x in the summand with action tick, or x itself if it is not assigned.
+data::data_expression tick_update_of_x(const std::string& text, bool conditional_resets)
+{
   lps::specification spec = lps::parse_linear_process_specification(text);
   data::rewriter rewr(spec.data());
-  lps::scoped_stategraph(spec, rewr, lps::liveness_scopes::global);
+  lps::scoped_stategraph(spec, rewr, lps::liveness_scopes::global, false, conditional_resets);
   const lps::action_summand_vector& summands = spec.process().action_summands();
   auto tick = std::find_if(summands.begin(),
     summands.end(),
@@ -179,9 +173,31 @@ BOOST_AUTO_TEST_CASE(test_conditional_reset)
              && std::string(s.multi_action().actions().front().label().name()) == "tick";
     });
   BOOST_REQUIRE(tick != summands.end());
-  const data::assignment_list& assignments = tick->assignments();
-  const bool conditional = std::any_of(assignments.begin(),
-    assignments.end(),
-    [](const data::assignment& a) { return std::string(a.lhs().name()) == "x" && data::is_if_application(a.rhs()); });
-  BOOST_CHECK(conditional);
+  for (const data::assignment& a: tick->assignments())
+  {
+    if (std::string(a.lhs().name()) == "x")
+    {
+      return a.rhs();
+    }
+  }
+  return data::variable("x", data::sort_bool::bool_());
+}
+
+} // namespace
+
+// A summand whose target depends on the source state can lead to vertices where a parameter is
+// dead and to vertices where it is live. It then gets a conditional reset, unless conditional
+// resets are left out. Here tick keeps the control state; x is only live at (a, b) = (2, 1), before
+// the read.
+BOOST_AUTO_TEST_CASE(test_conditional_reset)
+{
+  const std::string text = "act write, read: Bool; tick;\n"
+                           "proc P(a, b: Pos, x: Bool) =\n"
+                           "     sum v: Bool. (a == 1) -> write(v) . P(2, b, v)\n"
+                           "   + (a == 2 && b == 1) -> read(x) . P(1, 2, x)\n"
+                           "   + (a == 2 && b == 2) -> tau . P(1, 1, x)\n"
+                           "   + tick . P(a, b, x);\n"
+                           "init P(1, 1, false);\n";
+  BOOST_CHECK(data::is_if_application(tick_update_of_x(text, true)));
+  BOOST_CHECK_EQUAL(tick_update_of_x(text, false), data::variable("x", data::sort_bool::bool_()));
 }

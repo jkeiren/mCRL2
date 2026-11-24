@@ -24,6 +24,12 @@
 /// With singleton scopes this is the local algorithm. Without this restriction the analysis is at least
 /// as precise, and more precise for larger scopes.
 ///
+/// A scope that rules a summand fixes its source vertex, so it only justifies unconditional resets;
+/// conditional resets come from scopes that do not rule the summand, and therefore only without
+/// use_belongs. They make the summand read the control flow parameters in the condition, which can
+/// slow down symbolic exploration a lot. Optionally (no conditional_resets), they are left out: the
+/// labels are still computed without the belongs restriction, but only unconditional resets are made.
+///
 /// The invariant (control_invariant_analysis) that decides which summands are applicable reads the
 /// parameters in its scopes. Resetting such a parameter could enable a summand that the invariant
 /// rules out. The invariant is therefore made explicit, as in control_invariant: the derived sources
@@ -42,6 +48,7 @@
 
 #include <algorithm>
 #include <set>
+#include <tuple>
 #include <vector>
 
 namespace mcrl2::lps
@@ -77,6 +84,7 @@ protected:
   data::rewriter m_rewr;
   liveness_scopes m_scopes;
   bool m_use_belongs;
+  bool m_conditional_resets;
 
   std::vector<data::variable> m_parameters;
   std::vector<bool> m_data;
@@ -450,11 +458,13 @@ protected:
     return data::lazy::join_or(disjuncts.begin(), disjuncts.end());
   }
 
-  // Resets dead data parameters; returns the number of unconditional and of conditional resets.
-  std::pair<std::size_t, std::size_t> reset(const analysis_type& analysis)
+  // Resets dead data parameters; returns the number of unconditional, conditional and omitted
+  // conditional resets.
+  std::tuple<std::size_t, std::size_t, std::size_t> reset(const analysis_type& analysis)
   {
     std::size_t unconditional = 0;
     std::size_t conditional = 0;
+    std::size_t omitted = 0;
     for (std::size_t j = 0; j < action_summand_count(); ++j)
     {
       if (analysis.dead(j))
@@ -476,8 +486,15 @@ protected:
           }
           else if (!data::sort_bool::is_false_function_symbol(condition))
           {
-            rhs = data::if_(condition, analysis.initial_value(l), rhs);
-            ++conditional;
+            if (m_conditional_resets)
+            {
+              rhs = data::if_(condition, analysis.initial_value(l), rhs);
+              ++conditional;
+            }
+            else
+            {
+              ++omitted;
+            }
           }
         }
         if (rhs != m_parameters[l])
@@ -487,15 +504,20 @@ protected:
       }
       s.assignments() = data::assignment_list(assignments.begin(), assignments.end());
     }
-    return {unconditional, conditional};
+    return {unconditional, conditional, omitted};
   }
 
 public:
-  scoped_stategraph_algorithm(specification& spec, const data::rewriter& rewr, liveness_scopes scopes, bool use_belongs)
+  scoped_stategraph_algorithm(specification& spec,
+    const data::rewriter& rewr,
+    liveness_scopes scopes,
+    bool use_belongs,
+    bool conditional_resets)
     : m_spec(spec),
       m_rewr(rewr),
       m_scopes(scopes),
-      m_use_belongs(use_belongs)
+      m_use_belongs(use_belongs),
+      m_conditional_resets(conditional_resets)
   {}
 
   void run()
@@ -541,11 +563,16 @@ public:
       m_infos.push_back(std::move(info));
     }
     compute_labels();
-    const auto [unconditional, conditional] = reset(analysis);
+    const auto [unconditional, conditional, omitted] = reset(analysis);
     remove_dead_summands(m_spec, analysis);
     mCRL2log(log::log_level_t::verbose) << "scoped stategraph: " << m_infos.size() << " scopes with " << vertices
                                         << " vertices and " << edges << " edges, " << unconditional << " resets, "
-                                        << conditional << " conditional resets" << std::endl;
+                                        << conditional << " conditional resets";
+    if (!m_conditional_resets)
+    {
+      mCRL2log(log::log_level_t::verbose) << " (" << omitted << " conditional resets omitted)";
+    }
+    mCRL2log(log::log_level_t::verbose) << std::endl;
   }
 };
 
@@ -554,11 +581,16 @@ public:
 /// \brief Resets dead data parameters of an LPS using liveness on scoped control flow graphs.
 /// \param use_belongs If true, a data parameter is only labelled in the scopes it belongs to, as in
 /// the local stategraph algorithm.
+/// \param conditional_resets If false, resets that depend on the source state are left out; only
+/// relevant if use_belongs is false.
 /// Global variables are instantiated. The result is strongly bisimilar to the input.
-inline void
-scoped_stategraph(specification& spec, const data::rewriter& rewr, liveness_scopes scopes, bool use_belongs = false)
+inline void scoped_stategraph(specification& spec,
+  const data::rewriter& rewr,
+  liveness_scopes scopes,
+  bool use_belongs = false,
+  bool conditional_resets = true)
 {
-  detail::scoped_stategraph_algorithm(spec, rewr, scopes, use_belongs).run();
+  detail::scoped_stategraph_algorithm(spec, rewr, scopes, use_belongs, conditional_resets).run();
 }
 
 } // namespace mcrl2::lps

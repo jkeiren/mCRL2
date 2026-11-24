@@ -541,6 +541,7 @@ available_tests = {
     'lpssplitranges'                              : lambda name, settings: LpssplitrangesTest(name, settings)                                          ,
     'lpsscopedstategraph-pairs'                   : lambda name, settings: LpsscopedstategraphTest(name, 'pairs', settings)                            ,
     'lpsscopedstategraph-global'                  : lambda name, settings: LpsscopedstategraphTest(name, 'global', settings)                           ,
+    'lpsscopedstategraph-global-unconditional'    : lambda name, settings: LpsscopedstategraphTest(name, 'global-unconditional', settings)             ,
     'lpsstategraph'                               : lambda name, settings: LpsstategraphTest(name, settings)                                           ,
     'lts2pbes'                                    : lambda name, settings: Lts2pbesTest(name, settings)                                                ,
     'lpsrewr'                                     : lambda name, settings: LpsrewrTest(name, settings)                                                ,

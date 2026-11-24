@@ -21,6 +21,8 @@
 #include "mcrl2/utilities/detail/transform_tool.h"
 #include "mcrl2/utilities/input_output_tool.h"
 
+#include <tuple>
+
 using namespace mcrl2;
 using data::tools::rewriter_tool;
 using utilities::detail::transform_tool;
@@ -120,24 +122,27 @@ struct scoped_stategraph_command : public lps::detail::lps_rewriter_command
 {
   lps::liveness_scopes scopes;
   bool use_belongs;
+  bool conditional_resets;
 
   scoped_stategraph_command(const std::string& name,
     lps::liveness_scopes scopes_,
     bool use_belongs_,
+    bool conditional_resets_,
     const std::string& input_filename,
     const std::string& output_filename,
     const std::vector<std::string>& options,
     data::rewrite_strategy strategy)
     : lps::detail::lps_rewriter_command(name, input_filename, output_filename, options, strategy),
       scopes(scopes_),
-      use_belongs(use_belongs_)
+      use_belongs(use_belongs_),
+      conditional_resets(conditional_resets_)
   {}
 
   void execute() override
   {
     lps::detail::lps_command::execute();
     data::rewriter rewr(lpsspec.data(), strategy);
-    lps::scoped_stategraph(lpsspec, rewr, scopes, use_belongs);
+    lps::scoped_stategraph(lpsspec, rewr, scopes, use_belongs, conditional_resets);
     lps::save_lps(lpsspec, output_filename);
   }
 };
@@ -181,48 +186,27 @@ public:
       std::make_shared<control_invariant_command>(input_filename(), output_filename(), options, rewrite_strategy()));
     add_command(
       std::make_shared<split_ranges_command>(input_filename(), output_filename(), options, rewrite_strategy()));
-    add_command(std::make_shared<scoped_stategraph_command>("scoped-stategraph-single",
-      lps::liveness_scopes::single,
-      false,
-      input_filename(),
-      output_filename(),
-      options,
-      rewrite_strategy()));
-    add_command(std::make_shared<scoped_stategraph_command>("scoped-stategraph-pairs",
-      lps::liveness_scopes::pairs,
-      false,
-      input_filename(),
-      output_filename(),
-      options,
-      rewrite_strategy()));
-    add_command(std::make_shared<scoped_stategraph_command>("scoped-stategraph-global",
-      lps::liveness_scopes::global,
-      false,
-      input_filename(),
-      output_filename(),
-      options,
-      rewrite_strategy()));
-    add_command(std::make_shared<scoped_stategraph_command>("scoped-stategraph-single-belongs",
-      lps::liveness_scopes::single,
-      true,
-      input_filename(),
-      output_filename(),
-      options,
-      rewrite_strategy()));
-    add_command(std::make_shared<scoped_stategraph_command>("scoped-stategraph-pairs-belongs",
-      lps::liveness_scopes::pairs,
-      true,
-      input_filename(),
-      output_filename(),
-      options,
-      rewrite_strategy()));
-    add_command(std::make_shared<scoped_stategraph_command>("scoped-stategraph-global-belongs",
-      lps::liveness_scopes::global,
-      true,
-      input_filename(),
-      output_filename(),
-      options,
-      rewrite_strategy()));
+    const std::vector<std::pair<std::string, lps::liveness_scopes>> scope_families
+      = {{"single", lps::liveness_scopes::single},
+        {"pairs", lps::liveness_scopes::pairs},
+        {"global", lps::liveness_scopes::global}};
+    // Suffix, use_belongs, conditional_resets.
+    const std::vector<std::tuple<std::string, bool, bool>> restrictions
+      = {{"", false, true}, {"-belongs", true, true}, {"-unconditional", false, false}};
+    for (const auto& [suffix, use_belongs, conditional_resets]: restrictions)
+    {
+      for (const auto& [family, scopes]: scope_families)
+      {
+        add_command(std::make_shared<scoped_stategraph_command>("scoped-stategraph-" + family + suffix,
+          scopes,
+          use_belongs,
+          conditional_resets,
+          input_filename(),
+          output_filename(),
+          options,
+          rewrite_strategy()));
+      }
+    }
     add_command(std::make_shared<is_well_typed_command>(input_filename(), output_filename(), options));
     }
 };
